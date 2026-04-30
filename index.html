@@ -1,73 +1,113 @@
 <!doctype html>
 <html lang="en">
   <head>
-    <!-- Basic SEO -->
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-
-    <!-- Title (VERY IMPORTANT) -->
-    <title>BOBO AI - Smart Chat, Automation & Productivity Platform</title>
-
-    <!-- Meta Description -->
+    <title>
+      ScratchPad - System Design, API Planning, Notes & Task Workspace
+    </title>
     <meta
       name="description"
-      content="BOBO AI is a powerful platform for smart conversations, automation, productivity tools, and AI-powered insights. Build, chat, and scale with BOBO."
+      content="ScratchPad is an all-in-one workspace for developers, professionals, students, and designers to design systems, plan APIs, manage tasks, take notes, and sketch ideas."
     />
-
-    <!-- Keywords (less important but still okay) -->
     <meta
       name="keywords"
-      content="BOBO AI, AI chatbot, automation platform, productivity AI, smart assistant, BOBO app"
+      content="ScratchPad, system design tool, API design tool, productivity workspace, notes app for developers, task manager, sketchpad app"
     />
-
-    <!-- Author -->
-    <meta name="author" content="BOBO AI" />
-
-    <!-- Favicon -->
+    <meta name="author" content="ScratchPad" />
+    <meta name="theme-color" content="#0f172a" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-
-    <!-- Open Graph (for social media sharing) -->
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="canonical" href="https://scratchpad.falseidea.com/" />
+    <meta name="robots" content="index, follow" />
     <meta
       property="og:title"
-      content="BOBO AI - Smart Chat & Automation Platform"
+      content="ScratchPad - All-in-One Workspace for Systems, APIs & Notes"
     />
     <meta
       property="og:description"
-      content="Chat smarter, automate faster, and build powerful workflows with BOBO AI."
+      content="Design systems, build APIs, manage tasks, take notes, and sketch ideas — all in one powerful workspace."
     />
     <meta property="og:type" content="website" />
-    <meta property="og:url" content="https://yourdomain.com" />
-    <meta property="og:image" content="https://yourdomain.com/preview.png" />
+    <meta property="og:url" content="https://scratchpad.falseidea.com/" />
+    <meta property="og:image" content="https://scratchpad.falseidea.com//preview.png" />
 
-    <!-- Twitter Card -->
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="BOBO AI" />
+    <meta name="twitter:title" content="ScratchPad" />
     <meta
       name="twitter:description"
-      content="AI-powered chat, automation, and productivity tools."
+      content="A powerful workspace for developers, designers, and students."
     />
-    <meta name="twitter:image" content="https://yourdomain.com/preview.png" />
+    <meta name="twitter:image" content="https://scratchpad.falseidea.com//preview.png" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        "name": "ScratchPad",
+        "operatingSystem": "Web",
+        "applicationCategory": "ProductivityApplication",
+        "description": "ScratchPad is an all-in-one workspace for professionals, developers, students, and designers to design systems, plan APIs, manage tasks, take notes, and sketch ideas.",
+        "url": "https://scratchpad.falseidea.com/",
+        "image": "https://scratchpad.falseidea.com//preview.png",
+        "author": {
+          "@type": "Organization",
+          "name": "ScratchPad"
+        },
+        "offers": {
+          "@type": "Offer",
+          "price": "0",
+          "priceCurrency": "USD"
+        },
+        "featureList": [
+          "System design workspace",
+          "API planning and structuring",
+          "Task management",
+          "Notes and documentation",
+          "Sketchpad for designers",
+          "All-in-one productivity tool"
+        ]
+      }
+    </script>
 
-    <!-- Canonical URL -->
-    <link rel="canonical" href="https://yourdomain.com" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "Organization",
+        "name": "ScratchPad",
+        "url": "https://scratchpad.falseidea.com/",
+        "logo": "https://scratchpad.falseidea.com//logo.png",
+        "sameAs": [
+          "https://linkedin.com/company/falseidea",
+        ]
+      }
+    </script>
 
-    <!-- Robots -->
-    <meta name="robots" content="index, follow" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebSite",
+        "name": "ScratchPad",
+        "url": "https://scratchpad.falseidea.com/",
+        "potentialAction": {
+          "@type": "SearchAction",
+          "target": "https://scratchpad.falseidea.com//search?q={search_term_string}",
+          "query-input": "required name=search_term_string"
+        }
+      }
+    </script>
   </head>
 
   <body>
-    <!-- SEO fallback content -->
     <noscript>
-      <h1>BOBO AI - Smart Chat & Automation Platform</h1>
+      <h1>ScratchPad - System Design, API Planning, Notes & Tasks</h1>
       <p>
-        BOBO AI helps you automate tasks, chat intelligently, and boost
-        productivity with advanced AI tools.
+        ScratchPad is your all-in-one workspace to design systems, plan APIs,
+        manage tasks, take notes, and sketch ideas — built for developers,
+        professionals, students, and designers.
       </p>
     </noscript>
 
     <div id="root"></div>
-
-    <!-- Main React App -->
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>
