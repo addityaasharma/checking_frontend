@@ -67,7 +67,7 @@ const Auth = () => {
         setLoading(true);
         clearError();
         try {
-            const res = await fetch(`${API_BASE}v1/user/login/bobo`, {
+            const res = await fetch(`${API_BASE}/v1/user/login/bobo`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 credentials: "include",
@@ -91,7 +91,7 @@ const Auth = () => {
         clearError();
 
         const popup = window.open(
-            `${API_BASE}v1/user/login/arc?redirect=${encodeURIComponent(window.location.origin + "/arc-callback")}`,
+            `${API_BASE}/v1/user/login/arc?redirect=${encodeURIComponent(window.location.origin + "/arc-callback")}`,
             "arcLogin",
             "width=500,height=600"
         );
@@ -131,7 +131,7 @@ const Auth = () => {
         setLoading(true);
         clearError();
         try {
-            const res = await fetch(`${API_BASE}v1/user/signup/bobo`, {
+            const res = await fetch(`${API_BASE}/v1/user/signup/bobo`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
@@ -160,7 +160,7 @@ const Auth = () => {
         setLoading(true);
         clearError();
         try {
-            const res = await fetch(`${API_BASE}v1/user/signup/verify`, {
+            const res = await fetch(`${API_BASE}/v1/user/signup/verify`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 credentials: "include",

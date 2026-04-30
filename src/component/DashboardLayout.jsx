@@ -100,7 +100,7 @@ const DashboardLayout = () => {
     }, []);
 
     useEffect(() => {
-        fetch(`${API_BASE}v1/user/profile`, { credentials: "include" })
+        fetch(`${API_BASE}/v1/user/profile`, { credentials: "include" })
             .then((r) => r.json())
             .then((d) => { if (d.status) setUser(d.data); })
             .catch(() => { });
@@ -117,7 +117,7 @@ const DashboardLayout = () => {
     }, [profileModalOpen]);
 
     const handleLogout = async () => {
-        await fetch(`${API_BASE}v1/user/logout`, { method: "POST", credentials: "include" });
+        await fetch(`${API_BASE}/v1/user/logout`, { method: "POST", credentials: "include" });
         localStorage.clear();
         navigate("/login");
     };
