@@ -110,7 +110,7 @@ export default function Todo() {
     /* ── fetch ── */
     const fetchTodos = async () => {
         try {
-            const r = await fetch(`${API_BASE}/user/todo`, { credentials: "include" });
+            const r = await fetch(`${API_BASE}/v1/user/todo`, { credentials: "include" });
             const d = await r.json();
             if (d.status) setTodos(d.data);
         } catch { }
@@ -187,7 +187,7 @@ export default function Todo() {
         if (!input.name.trim() || !input.task.trim()) return;
         setAdding(true);
         try {
-            const r = await fetch(`${API_BASE}/user/todo`, {
+            const r = await fetch(`${API_BASE}/v1/user/todo`, {
                 method: "POST", headers: { "Content-Type": "application/json" },
                 credentials: "include",
                 body: JSON.stringify({ name: input.name.trim(), task: input.task.trim() }),
@@ -200,7 +200,7 @@ export default function Todo() {
 
     const toggleTodo = async (todo) => {
         try {
-            await fetch(`${API_BASE}/user/todo/${todo.id}`, {
+            await fetch(`${API_BASE}/v1/user/todo/${todo.id}`, {
                 method: "PUT", headers: { "Content-Type": "application/json" },
                 credentials: "include",
                 body: JSON.stringify({ is_completed: !todo.is_completed }),
@@ -211,7 +211,7 @@ export default function Todo() {
 
     const deleteTodo = async (id) => {
         try {
-            await fetch(`${API_BASE}/user/todo/${id}`, { method: "DELETE", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify({}) });
+            await fetch(`${API_BASE}/v1/user/todo/${id}`, { method: "DELETE", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify({}) });
             setTodos(p => p.filter(t => t.id !== id));
             if (expanded === id) setExpanded(null);
         } catch { }
@@ -231,7 +231,7 @@ export default function Todo() {
         if (!editInput.name.trim() || !editInput.task.trim()) return;
         setSavingEdit(true);
         try {
-            const r = await fetch(`${API_BASE}/user/todo/${id}`, {
+            const r = await fetch(`${API_BASE}/v1/user/todo/${id}`, {
                 method: "PUT", headers: { "Content-Type": "application/json" },
                 credentials: "include",
                 body: JSON.stringify({ name: editInput.name.trim(), task: editInput.task.trim() }),

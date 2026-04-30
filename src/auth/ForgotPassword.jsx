@@ -89,7 +89,7 @@ const ForgotPassword = () => {
         setLoading(true);
         clearError();
         try {
-            const res = await fetch(`${API_BASE}/forgot-password/bobo`, {
+            const res = await fetch(`${API_BASE}v1/user/forgot-password/bobo`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ email }),
@@ -114,7 +114,7 @@ const ForgotPassword = () => {
         setLoading(true);
         clearError();
         try {
-            const res = await fetch(`${API_BASE}/forgot-password/bobo_verify`, {
+            const res = await fetch(`${API_BASE}v1/user/forgot-password/bobo_verify`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ email, otp: code }),
@@ -141,7 +141,7 @@ const ForgotPassword = () => {
         clearError();
 
         try {
-            const res = await fetch(`${API_BASE}/forgot-password/bobo_reset`, {
+            const res = await fetch(`${API_BASE}v1/user/forgot-password/bobo_reset`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
