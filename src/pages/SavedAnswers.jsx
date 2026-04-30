@@ -1,35 +1,102 @@
 import React, { useState, useEffect, useCallback } from "react";
+import { useParams, useNavigate } from "react-router-dom";
 
-const API = "/v1/user/saved"; // adjust to your actual route prefix
+const API = "/v1/user/saved";
+
+// ── Accent palette — richer tones for white bg ────────────────────────────
+const ACCENTS = [
+  { bar: "#d97706", bg: "rgba(217,119,6,0.06)",   text: "#d97706" },  // amber
+  { bar: "#059669", bg: "rgba(5,150,105,0.06)",    text: "#059669" },  // emerald
+  { bar: "#e11d48", bg: "rgba(225,29,72,0.05)",    text: "#e11d48" },  // rose
+  { bar: "#0284c7", bg: "rgba(2,132,199,0.06)",    text: "#0284c7" },  // sky
+  { bar: "#7c3aed", bg: "rgba(124,58,237,0.06)",   text: "#7c3aed" },  // violet
+];
+const accent = (i) => ACCENTS[i % ACCENTS.length];
+
+const fmtDate = (s) => {
+  if (!s) return "";
+  return new Date(s).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+};
+const wordCount = (s = "") => s.trim().split(/\s+/).filter(Boolean).length;
 
 // ── Spinner ────────────────────────────────────────────────────────────────
-const Spinner = ({ size = 16, color = "text-violet-600" }) => (
-  <svg className={`animate-spin ${color}`} width={size} height={size} viewBox="0 0 24 24" fill="none">
-    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
-    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+const Spinner = ({ size = 18 }) => (
+  <svg style={{ animation: "sa-spin 0.8s linear infinite" }} width={size} height={size} viewBox="0 0 24 24" fill="none">
+    <circle opacity={0.2} cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
+    <path opacity={0.9} fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
   </svg>
 );
 
+// ── Global styles ──────────────────────────────────────────────────────────
+const STYLES = `
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,500;0,700;1,500&family=JetBrains+Mono:wght@400;500&family=DM+Sans:wght@400;500&display=swap');
+
+@keyframes sa-spin    { to { transform: rotate(360deg); } }
+@keyframes sa-fadeUp  { from { opacity:0; transform:translateY(12px); } to { opacity:1; transform:translateY(0); } }
+@keyframes sa-slideIn { from { opacity:0; transform:translateX(28px); } to { opacity:1; transform:translateX(0); } }
+@keyframes sa-overlayIn { from { opacity:0; } to { opacity:1; } }
+
+.sa-card    { animation: sa-fadeUp  0.32s ease both; }
+.sa-drawer  { animation: sa-slideIn 0.28s cubic-bezier(.22,1,.36,1) both; }
+.sa-overlay { animation: sa-overlayIn 0.18s ease both; }
+.sa-input:focus { outline: none; }
+.sa-scrollbar::-webkit-scrollbar       { width: 4px; }
+.sa-scrollbar::-webkit-scrollbar-track { background: transparent; }
+.sa-scrollbar::-webkit-scrollbar-thumb { background: #d0d0d8; border-radius: 4px; }
+.sa-action-btn:hover { background: #f4f4f6 !important; }
+`;
+
+function injectStyles() {
+  if (document.getElementById("sa-styles")) return;
+  const el = document.createElement("style");
+  el.id = "sa-styles";
+  el.textContent = STYLES;
+  document.head.appendChild(el);
+}
+
 // ── Modal ──────────────────────────────────────────────────────────────────
 const Modal = ({ title, onClose, onSave, saving, children }) => (
-  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
-    <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg mx-4 p-6">
-      <h3 className="text-base font-semibold text-gray-900 mb-4">{title}</h3>
+  <div className="sa-overlay" style={{
+    position: "fixed", inset: 0, zIndex: 60,
+    display: "flex", alignItems: "center", justifyContent: "center",
+    background: "rgba(0,0,0,0.35)", padding: "16px",
+  }}>
+    <div style={{
+      background: "#fff", border: "1px solid #e8e8ec",
+      borderRadius: "18px", width: "100%", maxWidth: "520px",
+      padding: "28px", boxShadow: "0 24px 60px rgba(0,0,0,0.12)",
+    }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "20px" }}>
+        <span style={{ fontFamily: "'Playfair Display', serif", fontSize: "17px", color: "#1a1a1c", fontWeight: 500 }}>
+          {title}
+        </span>
+        <button onClick={onClose} disabled={saving} style={{
+          background: "none", border: "none", cursor: "pointer",
+          color: "#bbb", padding: "4px", lineHeight: 0,
+        }}>
+          <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round">
+            <path d="M18 6L6 18M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+
       {children}
-      <div className="flex gap-2 mt-5">
-        <button
-          onClick={onSave}
-          disabled={saving}
-          className="flex-1 py-2.5 bg-violet-600 hover:bg-violet-700 text-white text-sm font-medium rounded-xl transition disabled:opacity-60 flex items-center justify-center gap-2"
-        >
-          {saving && <Spinner size={14} color="text-white" />}
+
+      <div style={{ display: "flex", gap: "10px", marginTop: "20px" }}>
+        <button onClick={onSave} disabled={saving} style={{
+          flex: 1, padding: "11px", background: "#1a1a1c", color: "#fff",
+          border: "none", borderRadius: "10px", cursor: saving ? "not-allowed" : "pointer",
+          fontFamily: "'DM Sans', sans-serif", fontWeight: 500, fontSize: "13px",
+          opacity: saving ? 0.6 : 1, display: "flex", alignItems: "center", justifyContent: "center", gap: "8px",
+        }}>
+          {saving && <Spinner size={13} />}
           {saving ? "Saving…" : "Save"}
         </button>
-        <button
-          onClick={onClose}
-          disabled={saving}
-          className="flex-1 py-2.5 border border-gray-200 text-gray-600 text-sm font-medium rounded-xl hover:bg-gray-50 transition disabled:opacity-50"
-        >
+        <button onClick={onClose} disabled={saving} style={{
+          flex: 1, padding: "11px", background: "transparent", color: "#888",
+          border: "1px solid #e4e4e8", borderRadius: "10px", cursor: "pointer",
+          fontFamily: "'DM Sans', sans-serif", fontWeight: 500, fontSize: "13px",
+        }}>
           Cancel
         </button>
       </div>
@@ -38,62 +105,210 @@ const Modal = ({ title, onClose, onSave, saving, children }) => (
 );
 
 // ── Detail Drawer ──────────────────────────────────────────────────────────
-const DetailDrawer = ({ answer, onClose, onEdit, onDelete, deleting }) => (
-  <div className="fixed inset-0 z-40 flex justify-end bg-black/20" onClick={onClose}>
-    <div
-      className="bg-white w-full max-w-md h-full shadow-2xl flex flex-col"
-      onClick={e => e.stopPropagation()}
-    >
-      <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-        <h3 className="text-sm font-semibold text-gray-900 truncate pr-4">{answer.name}</h3>
-        <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition shrink-0">
-          <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round">
-            <path d="M18 6L6 18M6 6l12 12" />
-          </svg>
-        </button>
-      </div>
+const DetailDrawer = ({ answer, accentIdx, onClose, onEdit, onDelete, deleting }) => {
+  const ac = accent(accentIdx);
+  return (
+    <div className="sa-overlay" onClick={onClose} style={{
+      position: "fixed", inset: 0, zIndex: 50,
+      background: "rgba(0,0,0,0.3)", display: "flex", justifyContent: "flex-end",
+    }}>
+      <div className="sa-drawer sa-scrollbar" onClick={e => e.stopPropagation()} style={{
+        width: "100%", maxWidth: "460px", height: "100%",
+        background: "#fff", display: "flex", flexDirection: "column",
+        borderLeft: "1px solid #e8e8ec", overflowY: "auto",
+        boxShadow: "-12px 0 40px rgba(0,0,0,0.08)",
+      }}>
+        {/* Accent top bar */}
+        <div style={{ height: "3px", background: ac.bar, flexShrink: 0 }} />
 
-      <div className="flex-1 overflow-y-auto px-5 py-4">
-        <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">{answer.answer}</p>
-      </div>
+        {/* Header */}
+        <div style={{
+          padding: "24px 28px 20px", borderBottom: "1px solid #f0f0f2",
+          display: "flex", gap: "16px", alignItems: "flex-start", flexShrink: 0,
+        }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <p style={{
+              fontFamily: "'Playfair Display', serif", fontSize: "20px",
+              color: "#1a1a1c", fontWeight: 500, lineHeight: 1.3, wordBreak: "break-word",
+            }}>{answer.name}</p>
+            <div style={{ display: "flex", gap: "16px", marginTop: "8px", alignItems: "center" }}>
+              <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: "10px", color: "#bbb", letterSpacing: "0.08em" }}>
+                {fmtDate(answer.created_at)}
+              </span>
+              <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: "10px", color: "#bbb" }}>
+                {wordCount(answer.answer)} words
+              </span>
+            </div>
+          </div>
+          <button onClick={onClose} style={{
+            background: "none", border: "none", cursor: "pointer",
+            color: "#ccc", padding: "2px", lineHeight: 0, flexShrink: 0,
+          }}>
+            <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round">
+              <path d="M18 6L6 18M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
 
-      <div className="px-5 py-4 border-t border-gray-100 flex gap-2">
-        <button
-          onClick={onEdit}
-          className="flex-1 py-2.5 bg-violet-600 hover:bg-violet-700 text-white text-sm font-medium rounded-xl transition"
-        >
-          Edit
-        </button>
-        <button
-          onClick={onDelete}
-          disabled={deleting}
-          className="flex-1 py-2.5 border border-red-200 text-red-500 hover:bg-red-50 text-sm font-medium rounded-xl transition disabled:opacity-50 flex items-center justify-center gap-2"
-        >
-          {deleting ? <Spinner size={14} color="text-red-400" /> : null}
-          {deleting ? "Deleting…" : "Delete"}
-        </button>
+        {/* Body */}
+        <div className="sa-scrollbar" style={{ flex: 1, padding: "24px 28px", overflowY: "auto" }}>
+          <p style={{
+            fontFamily: "'DM Sans', sans-serif", fontSize: "14px",
+            color: "#555", lineHeight: 1.85, whiteSpace: "pre-wrap",
+          }}>{answer.answer}</p>
+        </div>
+
+        {/* Actions */}
+        <div style={{
+          padding: "20px 28px", borderTop: "1px solid #f0f0f2",
+          display: "flex", gap: "10px", flexShrink: 0,
+        }}>
+          <button onClick={onEdit} style={{
+            flex: 1, padding: "11px",
+            background: ac.bar, color: "#fff",
+            border: "none", borderRadius: "10px", cursor: "pointer",
+            fontFamily: "'DM Sans', sans-serif", fontWeight: 500, fontSize: "13px",
+          }}>
+            Edit
+          </button>
+          <button onClick={onDelete} disabled={deleting} style={{
+            flex: 1, padding: "11px",
+            background: "transparent", color: "#ef4444",
+            border: "1px solid #fde8e8", borderRadius: "10px",
+            cursor: deleting ? "not-allowed" : "pointer",
+            fontFamily: "'DM Sans', sans-serif", fontWeight: 500, fontSize: "13px",
+            display: "flex", alignItems: "center", justifyContent: "center", gap: "8px",
+            opacity: deleting ? 0.6 : 1,
+          }}>
+            {deleting && <Spinner size={13} />}
+            {deleting ? "Deleting…" : "Delete"}
+          </button>
+        </div>
       </div>
     </div>
-  </div>
-);
+  );
+};
+
+// ── Answer Card ────────────────────────────────────────────────────────────
+const AnswerCard = ({ item, index, onClick, onEdit, onDelete, deleting }) => {
+  const [hovered, setHovered] = useState(false);
+  const ac = accent(index);
+
+  return (
+    <div className="sa-card" style={{ animationDelay: `${Math.min(index * 0.05, 0.3)}s` }}>
+      <div
+        onClick={onClick}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+        style={{
+          position: "relative", cursor: "pointer", overflow: "hidden",
+          background: hovered ? ac.bg : "#fff",
+          border: `1px solid ${hovered ? ac.bar + "44" : "#eaeaee"}`,
+          borderLeft: `3px solid ${hovered ? ac.bar : "#e0e0e6"}`,
+          borderRadius: "12px", padding: "20px 20px 16px",
+          transition: "all 0.18s ease",
+          boxShadow: hovered ? "0 4px 20px rgba(0,0,0,0.06)" : "0 1px 4px rgba(0,0,0,0.04)",
+        }}
+      >
+        {/* Ghost index */}
+        <span style={{
+          position: "absolute", top: "-6px", right: "14px",
+          fontFamily: "'Playfair Display', serif",
+          fontSize: "64px", fontWeight: 700, lineHeight: 1,
+          color: ac.bar, opacity: hovered ? 0.1 : 0.05,
+          userSelect: "none", pointerEvents: "none", transition: "opacity 0.18s",
+        }}>
+          {String(index + 1).padStart(2, "0")}
+        </span>
+
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "12px" }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <p style={{
+              fontFamily: "'Playfair Display', serif", fontSize: "15px",
+              color: "#1a1a1c", fontWeight: 500,
+              whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+              marginBottom: "6px",
+            }}>{item.name}</p>
+            <p style={{
+              fontFamily: "'DM Sans', sans-serif", fontSize: "12px",
+              color: "#999", lineHeight: 1.6,
+              display: "-webkit-box", WebkitLineClamp: 2,
+              WebkitBoxOrient: "vertical", overflow: "hidden",
+            }}>{item.answer}</p>
+          </div>
+
+          {/* Action buttons */}
+          <div style={{
+            display: "flex", gap: "4px", flexShrink: 0,
+            opacity: hovered ? 1 : 0, transition: "opacity 0.15s",
+          }}>
+            <button className="sa-action-btn" onClick={e => { e.stopPropagation(); onEdit(); }}
+              style={{
+                width: "28px", height: "28px", borderRadius: "8px",
+                border: "1px solid #eaeaee", background: "#fff",
+                cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
+                color: "#aaa", transition: "background 0.15s",
+              }}>
+              <svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round">
+                <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
+              </svg>
+            </button>
+            <button className="sa-action-btn" onClick={e => { e.stopPropagation(); onDelete(); }}
+              disabled={deleting}
+              style={{
+                width: "28px", height: "28px", borderRadius: "8px",
+                border: "1px solid #eaeaee", background: "#fff",
+                cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
+                color: "#ef4444", transition: "background 0.15s",
+              }}>
+              {deleting
+                ? <Spinner size={12} />
+                : <svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round">
+                    <path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6" />
+                  </svg>
+              }
+            </button>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div style={{ display: "flex", alignItems: "center", gap: "10px", marginTop: "14px" }}>
+          <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: "10px", color: "#ccc", letterSpacing: "0.04em" }}>
+            {fmtDate(item.created_at)}
+          </span>
+          <span style={{ width: "3px", height: "3px", borderRadius: "50%", background: "#ddd", flexShrink: 0 }} />
+          <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: "10px", color: "#ccc" }}>
+            {wordCount(item.answer)}w
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 // ── Main Component ─────────────────────────────────────────────────────────
 const SavedAnswers = () => {
+  const { id } = useParams();
+  const navigate = useNavigate();
+
+  useEffect(() => { injectStyles(); }, []);
+
   const [answers, setAnswers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
 
   const [showAdd, setShowAdd] = useState(false);
-  const [editItem, setEditItem] = useState(null);   // answer object being edited
-  const [viewItem, setViewItem] = useState(null);   // answer object in drawer
+  const [editItem, setEditItem] = useState(null);
+  const [viewItem, setViewItem] = useState(null);
+  const [viewIdx, setViewIdx] = useState(0);
 
   const [formName, setFormName] = useState("");
   const [formAnswer, setFormAnswer] = useState("");
   const [saving, setSaving] = useState(false);
-  const [deleting, setDeleting] = useState(null);   // id being deleted
+  const [deleting, setDeleting] = useState(null);
+  const [searchFocused, setSearchFocused] = useState(false);
 
-  // ── Fetch all ────────────────────────────────────────────────────────────
   const fetchAnswers = useCallback(async () => {
     setLoading(true);
     try {
@@ -101,234 +316,217 @@ const SavedAnswers = () => {
       const d = await res.json();
       if (d.status) setAnswers(d.data);
       else setError(d.message);
-    } catch {
-      setError("Network error.");
-    } finally {
-      setLoading(false);
-    }
+    } catch { setError("Network error."); }
+    finally { setLoading(false); }
   }, []);
 
   useEffect(() => { fetchAnswers(); }, [fetchAnswers]);
 
-  // ── Create ────────────────────────────────────────────────────────────────
+  // Deep link /saved/:id
+  useEffect(() => {
+    if (!id) return;
+    (async () => {
+      try {
+        const res = await fetch(`${API}/${id}`, { credentials: "include" });
+        const d = await res.json();
+        if (d.status) { setViewItem(d.data); setViewIdx(0); }
+      } catch {}
+    })();
+  }, [id]);
+
+  const handleCloseDrawer = () => {
+    setViewItem(null);
+    if (id) navigate("/saved", { replace: true });
+  };
+
   const handleAdd = async () => {
     if (!formName.trim() || !formAnswer.trim()) return;
     setSaving(true);
     try {
       const res = await fetch(API, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
+        method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include",
         body: JSON.stringify({ name: formName.trim(), answer: formAnswer.trim() }),
       });
       const d = await res.json();
-      if (d.status) {
-        setShowAdd(false);
-        resetForm();
-        await fetchAnswers();
-      }
-    } finally {
-      setSaving(false);
-    }
+      if (d.status) { setShowAdd(false); resetForm(); await fetchAnswers(); }
+    } finally { setSaving(false); }
   };
 
-  // ── Update ────────────────────────────────────────────────────────────────
   const handleEdit = async () => {
     if (!editItem) return;
     setSaving(true);
     try {
       const res = await fetch(`${API}/${editItem.id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
+        method: "PUT", headers: { "Content-Type": "application/json" }, credentials: "include",
         body: JSON.stringify({ name: formName.trim(), answer: formAnswer.trim() }),
       });
       const d = await res.json();
-      if (d.status) {
-        setEditItem(null);
-        setViewItem(null);
-        resetForm();
-        await fetchAnswers();
-      }
-    } finally {
-      setSaving(false);
-    }
+      if (d.status) { setEditItem(null); setViewItem(null); resetForm(); await fetchAnswers(); }
+    } finally { setSaving(false); }
   };
 
-  // ── Delete ────────────────────────────────────────────────────────────────
-  const handleDelete = async (id) => {
+  const handleDelete = async (answerId) => {
     if (!window.confirm("Delete this saved answer?")) return;
-    setDeleting(id);
+    setDeleting(answerId);
     try {
-      await fetch(`${API}/${id}`, { method: "DELETE", credentials: "include" });
+      await fetch(`${API}/${answerId}`, { method: "DELETE", credentials: "include" });
       setViewItem(null);
-      setAnswers(prev => prev.filter(a => a.id !== id));
-    } finally {
-      setDeleting(null);
-    }
+      setAnswers(prev => prev.filter(a => a.id !== answerId));
+      if (id) navigate("/saved", { replace: true });
+    } finally { setDeleting(null); }
   };
 
   const resetForm = () => { setFormName(""); setFormAnswer(""); };
+  const openEdit = (item) => { setEditItem(item); setFormName(item.name); setFormAnswer(item.answer); };
 
-  const openEdit = (item) => {
-    setEditItem(item);
-    setFormName(item.name);
-    setFormAnswer(item.answer);
-  };
-
-  // ── Filtered list ─────────────────────────────────────────────────────────
   const filtered = answers.filter(a =>
     a.name.toLowerCase().includes(search.toLowerCase()) ||
     a.answer.toLowerCase().includes(search.toLowerCase())
   );
 
-  // ── Render ────────────────────────────────────────────────────────────────
-  return (
-    <div className="h-full flex flex-col">
+  // Shared input style
+  const inputStyle = {
+    width: "100%", boxSizing: "border-box", padding: "10px 14px",
+    background: "#f8f8fa", border: "1px solid #e8e8ec", borderRadius: "10px",
+    color: "#1a1a1c", fontFamily: "'DM Sans', sans-serif", fontSize: "13px",
+  };
 
-      {/* Header */}
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <h2 className="text-lg font-semibold text-gray-900">Saved Answers</h2>
-          <p className="text-xs text-gray-400 mt-0.5">{answers.length} saved</p>
+  return (
+    <div style={{
+      height: "100%", display: "flex", flexDirection: "column",
+      background: "#fff", color: "#1a1a1c",
+      fontFamily: "'DM Sans', sans-serif",
+    }}>
+
+      {/* ── Header ── */}
+      <div style={{ paddingBottom: "24px", flexShrink: 0 }}>
+        <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: "16px" }}>
+          <div>
+            <p style={{
+              fontFamily: "'JetBrains Mono', monospace", fontSize: "10px",
+              color: "#ccc", letterSpacing: "0.12em", textTransform: "uppercase", marginBottom: "4px",
+            }}>Archive</p>
+            <h1 style={{
+              fontFamily: "'Playfair Display', serif", fontSize: "26px",
+              fontWeight: 700, color: "#1a1a1c", margin: 0, lineHeight: 1.1,
+            }}>Saved Answers</h1>
+            <p style={{
+              fontFamily: "'JetBrains Mono', monospace", fontSize: "11px",
+              color: "#ccc", marginTop: "4px",
+            }}>{answers.length} {answers.length === 1 ? "entry" : "entries"}</p>
+          </div>
+          <button onClick={() => { resetForm(); setShowAdd(true); }}
+            style={{
+              display: "flex", alignItems: "center", gap: "8px",
+              padding: "10px 18px", background: "#1a1a1c", color: "#fff",
+              border: "none", borderRadius: "10px", cursor: "pointer",
+              fontFamily: "'DM Sans', sans-serif", fontWeight: 500, fontSize: "13px",
+              flexShrink: 0, whiteSpace: "nowrap",
+            }}>
+            <svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round">
+              <path d="M12 5v14M5 12h14" />
+            </svg>
+            New Entry
+          </button>
         </div>
-        <button
-          onClick={() => { resetForm(); setShowAdd(true); }}
-          className="flex items-center gap-1.5 px-3 py-2 bg-violet-600 hover:bg-violet-700 text-white text-xs font-medium rounded-xl transition"
-        >
-          <svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round">
-            <path d="M12 5v14M5 12h14" />
-          </svg>
-          New Answer
-        </button>
+        <div style={{ marginTop: "20px", height: "1px", background: "linear-gradient(90deg, #e8e8ec 0%, transparent 100%)" }} />
       </div>
 
-      {/* Search */}
-      <div className="relative mb-4">
-        <svg className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round">
+      {/* ── Search ── */}
+      <div style={{ position: "relative", marginBottom: "20px", flexShrink: 0 }}>
+        <svg style={{
+          position: "absolute", left: "14px", top: "50%", transform: "translateY(-50%)",
+          color: searchFocused ? "#aaa" : "#ccc", pointerEvents: "none", transition: "color 0.2s",
+        }} width={13} height={13} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round">
           <circle cx="11" cy="11" r="8" /><path d="M21 21l-4.35-4.35" />
         </svg>
         <input
-          type="text"
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          placeholder="Search answers…"
-          className="w-full pl-9 pr-4 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-violet-500 text-gray-800 placeholder-gray-400 bg-white"
+          className="sa-input"
+          type="text" value={search} onChange={e => setSearch(e.target.value)}
+          onFocus={() => setSearchFocused(true)}
+          onBlur={() => setSearchFocused(false)}
+          placeholder="Search entries…"
+          style={{
+            width: "100%", boxSizing: "border-box",
+            paddingLeft: "38px", paddingRight: "16px", paddingTop: "10px", paddingBottom: "10px",
+            background: "#f8f8fa",
+            border: `1px solid ${searchFocused ? "#c8c8d0" : "#eaeaee"}`,
+            borderRadius: "10px", color: "#1a1a1c",
+            fontFamily: "'DM Sans', sans-serif", fontSize: "13px",
+            transition: "border-color 0.2s",
+          }}
         />
       </div>
 
-      {/* States */}
+      {/* ── States ── */}
       {loading && (
-        <div className="flex-1 flex flex-col items-center justify-center gap-3">
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "12px" }}>
           <Spinner size={24} />
-          <p className="text-sm text-gray-400">Loading…</p>
+          <p style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: "11px", color: "#ccc" }}>Loading archive…</p>
         </div>
       )}
-
       {!loading && error && (
-        <div className="flex-1 flex items-center justify-center">
-          <p className="text-sm text-red-400">{error}</p>
+        <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <p style={{ fontSize: "13px", color: "#ef4444" }}>{error}</p>
         </div>
       )}
-
       {!loading && !error && filtered.length === 0 && (
-        <div className="flex-1 flex flex-col items-center justify-center gap-2 text-center py-16">
-          <svg width={32} height={32} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" className="text-gray-300">
-            <path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v14a2 2 0 01-2 2z" />
-            <polyline points="17 21 17 13 7 13 7 21" />
-            <polyline points="7 3 7 8 15 8" />
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "10px" }}>
+          <svg width={36} height={36} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.2} strokeLinecap="round" style={{ color: "#e0e0e6" }}>
+            <path d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z" />
           </svg>
-          <p className="text-sm text-gray-400">{search ? "No results found." : "No saved answers yet."}</p>
+          <p style={{ fontFamily: "'Playfair Display', serif", fontSize: "15px", color: "#ccc", fontStyle: "italic" }}>
+            {search ? "No entries found." : "Nothing saved yet."}
+          </p>
         </div>
       )}
 
-      {/* List */}
+      {/* ── Grid ── */}
       {!loading && !error && filtered.length > 0 && (
-        <div className="flex-1 overflow-y-auto space-y-2 pr-0.5">
-          {filtered.map(item => (
-            <div
-              key={item.id}
-              onClick={() => setViewItem(item)}
-              className="group bg-white border border-gray-100 rounded-2xl px-4 py-3.5 cursor-pointer hover:shadow-sm hover:border-violet-100 transition"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-gray-800 truncate">{item.name}</p>
-                  <p className="text-xs text-gray-400 mt-0.5 line-clamp-2 leading-relaxed">{item.answer}</p>
-                </div>
-                <div className="flex gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition mt-0.5">
-                  <button
-                    onClick={e => { e.stopPropagation(); openEdit(item); }}
-                    className="w-7 h-7 flex items-center justify-center rounded-lg text-gray-400 hover:bg-violet-50 hover:text-violet-600 transition"
-                  >
-                    <svg width={13} height={13} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round">
-                      <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
-                    </svg>
-                  </button>
-                  <button
-                    onClick={e => { e.stopPropagation(); handleDelete(item.id); }}
-                    disabled={deleting === item.id}
-                    className="w-7 h-7 flex items-center justify-center rounded-lg text-gray-400 hover:bg-red-50 hover:text-red-500 transition"
-                  >
-                    {deleting === item.id
-                      ? <Spinner size={13} color="text-red-400" />
-                      : <svg width={13} height={13} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round">
-                        <path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6" />
-                      </svg>
-                    }
-                  </button>
-                </div>
-              </div>
-              <p className="text-xs text-gray-300 mt-2">
-                {item.created_at ? new Date(item.created_at).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : ""}
-              </p>
-            </div>
+        <div className="sa-scrollbar" style={{
+          flex: 1, overflowY: "auto",
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
+          gap: "10px", alignContent: "start", paddingRight: "4px",
+        }}>
+          {filtered.map((item, i) => (
+            <AnswerCard
+              key={item.id} item={item} index={i}
+              onClick={() => { setViewItem(item); setViewIdx(i); }}
+              onEdit={() => openEdit(item)}
+              onDelete={() => handleDelete(item.id)}
+              deleting={deleting === item.id}
+            />
           ))}
         </div>
       )}
 
       {/* ── Add Modal ── */}
       {showAdd && (
-        <Modal title="Save New Answer" onClose={() => setShowAdd(false)} onSave={handleAdd} saving={saving}>
-          <div className="space-y-3">
-            <input
-              autoFocus
-              type="text"
-              value={formName}
-              onChange={e => setFormName(e.target.value)}
-              placeholder="Title / name"
-              className="w-full text-sm px-3.5 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-violet-500 text-gray-800 placeholder-gray-400"
-            />
-            <textarea
-              value={formAnswer}
+        <Modal title="New Entry" onClose={() => setShowAdd(false)} onSave={handleAdd} saving={saving}>
+          <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+            <input className="sa-input" autoFocus type="text" value={formName}
+              onChange={e => setFormName(e.target.value)} placeholder="Title"
+              style={{ ...inputStyle, fontFamily: "'Playfair Display', serif", fontSize: "14px" }} />
+            <textarea className="sa-input" value={formAnswer}
               onChange={e => setFormAnswer(e.target.value)}
-              placeholder="Answer content…"
-              rows={6}
-              className="w-full text-sm px-3.5 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-violet-500 text-gray-800 placeholder-gray-400 resize-none"
-            />
+              placeholder="Answer content…" rows={7}
+              style={{ ...inputStyle, color: "#555", lineHeight: 1.7, resize: "none" }} />
           </div>
         </Modal>
       )}
 
       {/* ── Edit Modal ── */}
       {editItem && (
-        <Modal title="Edit Answer" onClose={() => { setEditItem(null); resetForm(); }} onSave={handleEdit} saving={saving}>
-          <div className="space-y-3">
-            <input
-              autoFocus
-              type="text"
-              value={formName}
-              onChange={e => setFormName(e.target.value)}
-              placeholder="Title / name"
-              className="w-full text-sm px-3.5 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-violet-500 text-gray-800 placeholder-gray-400"
-            />
-            <textarea
-              value={formAnswer}
+        <Modal title="Edit Entry" onClose={() => { setEditItem(null); resetForm(); }} onSave={handleEdit} saving={saving}>
+          <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+            <input className="sa-input" autoFocus type="text" value={formName}
+              onChange={e => setFormName(e.target.value)} placeholder="Title"
+              style={{ ...inputStyle, fontFamily: "'Playfair Display', serif", fontSize: "14px" }} />
+            <textarea className="sa-input" value={formAnswer}
               onChange={e => setFormAnswer(e.target.value)}
-              placeholder="Answer content…"
-              rows={6}
-              className="w-full text-sm px-3.5 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-violet-500 text-gray-800 placeholder-gray-400 resize-none"
-            />
+              placeholder="Answer content…" rows={7}
+              style={{ ...inputStyle, color: "#555", lineHeight: 1.7, resize: "none" }} />
           </div>
         </Modal>
       )}
@@ -336,8 +534,8 @@ const SavedAnswers = () => {
       {/* ── Detail Drawer ── */}
       {viewItem && (
         <DetailDrawer
-          answer={viewItem}
-          onClose={() => setViewItem(null)}
+          answer={viewItem} accentIdx={viewIdx}
+          onClose={handleCloseDrawer}
           onEdit={() => { openEdit(viewItem); setViewItem(null); }}
           onDelete={() => handleDelete(viewItem.id)}
           deleting={deleting === viewItem.id}

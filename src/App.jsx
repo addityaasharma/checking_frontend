@@ -34,20 +34,19 @@ const App = () => {
       <Route path="/login" element={<Auth />} />
       <Route path="/forgot-password" element={<ForgotPassword />} />
 
-      {/* Auth guard wraps all protected routes */}
       <Route element={<PrivateRoute />}>
         <Route path="/" element={<DashboardLayout />}>
           <Route index element={<ConceptExplainer />} />
           <Route path="subjects" element={<Subjects />} />
           <Route path="timetable" element={<Timetable />} />
           <Route path="saved" element={<SavedAnswers />} />
-          <Route path="streak/:id" element={<UserStreak />} />
+          <Route path="saved/:id" element={<SavedAnswers />} />
+          <Route path="streak" element={<UserStreak />} />
           <Route path="profile" element={<Profile />} />
           <Route path="creatives" element={<Creatives />} />
         </Route>
       </Route>
 
-      {/* Catch all */}
       <Route path="*" element={<Navigate to="/" />} />
     </Routes>
   );

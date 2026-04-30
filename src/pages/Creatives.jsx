@@ -1,309 +1,456 @@
-import React, { useEffect, useRef, useCallback, useState } from 'react'
+import React, { useEffect, useRef, useCallback, useState, useMemo } from 'react'
 
-const COLORS = ['#1e1e1e', '#e03131', '#2f9e44', '#1971c2', '#e67700', '#6741d9']
-const TOOLS = [
-    { id: 'pencil', label: '✏️', title: 'Pencil (P)' },
-    { id: 'line', title: 'Line (L)', icon: 'line' },
-    { id: 'rect', title: 'Rectangle (R)', icon: 'rect' },
-    { id: 'circle', title: 'Circle (C)', icon: 'circle' },
-    { id: 'arrow', title: 'Arrow (A)', icon: 'arrow' },
-    { id: 'text', label: 'T', title: 'Text (T)' },
-    { id: 'eraser', title: 'Eraser (E)', icon: 'eraser' },
+/* ─── Constants ─── */
+const COLORS = ['#1a1a2e', '#e63946', '#2a9d8f', '#e9c46a', '#f4a261', '#457b9d', '#6a4c93', '#06d6a0', '#ffffff']
+const FONT_SIZES = [12, 16, 20, 28, 36, 48]
+const FONTS = ["'Kalam', cursive", "'Space Mono', monospace", "'DM Sans', sans-serif"]
+const FONT_LABELS = ['Handwriting', 'Mono', 'Sans']
+const BG_OPTIONS = [
+    { id: 'white', label: 'Plain', style: '#ffffff' },
+    { id: 'dot', label: 'Dots', style: 'dot' },
+    { id: 'grid', label: 'Grid', style: 'grid' },
+    { id: 'line', label: 'Lines', style: 'line' },
+    { id: 'dark', label: 'Dark', style: '#1a1a2e' },
 ]
+const SHAPES = ['rect', 'circle', 'diamond', 'hexagon', 'cylinder', 'parallelogram', 'cloud', 'note']
+const SHAPE_ICONS = {
+    rect: '▭', circle: '○', diamond: '◇', hexagon: '⬡', cylinder: '⌀', parallelogram: '▱', cloud: '☁', note: '🗒'
+}
+const STICKY_COLORS = ['#fef08a', '#bfdbfe', '#bbf7d0', '#fecaca', '#e9d5ff', '#fed7aa']
+const ARROW_STYLES = ['line', 'dashed', 'dotted']
+const ARROW_ENDS = ['none', 'arrow', 'filled', 'circle']
+const VANISH_DURATION = 300   // ms before vanish pen strokes disappear
+const VANISH_FADE = 100        // ms fade-out
 
-const ROUGHNESS = 0.7
+const isMobile = () => window.innerWidth < 640
+const isTablet = () => window.innerWidth < 1024
 
-/* ── SVG Icons ── */
-function IconLine() {
-    return <svg width="16" height="16" viewBox="0 0 16 16"><line x1="2" y1="14" x2="14" y2="2" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>
-}
-function IconRect() {
-    return <svg width="16" height="16" viewBox="0 0 16 16"><rect x="2" y="4" width="12" height="9" rx="1.5" stroke="currentColor" strokeWidth="1.5" fill="none" /></svg>
-}
-function IconCircle() {
-    return <svg width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.5" stroke="currentColor" strokeWidth="1.5" fill="none" /></svg>
-}
-function IconArrow() {
-    return <svg width="16" height="16" viewBox="0 0 16 16"><line x1="2" y1="14" x2="13" y2="3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /><path d="M13 3 L9 4 L12 7z" fill="currentColor" /></svg>
-}
-function IconEraser() {
-    return <svg width="16" height="16" viewBox="0 0 16 16"><rect x="1" y="9" width="9" height="5" rx="1" stroke="currentColor" strokeWidth="1.5" fill="none" transform="rotate(-30 5 11)" /><line x1="6" y1="14" x2="15" y2="14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
-}
-function IconSelect() {
-    return <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 2l10 5.5-5 1.5-2 5z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" /></svg>
-}
-function IconPan() {
-    return <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 2v2M8 12v2M2 8h2M12 8h2M4.9 4.9l1.4 1.4M9.7 9.7l1.4 1.4M4.9 11.1l1.4-1.4M9.7 6.3l1.4-1.4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /><circle cx="8" cy="8" r="2.5" stroke="currentColor" strokeWidth="1.5" /></svg>
-}
-function IconUndo() {
-    return <svg width="16" height="16" viewBox="0 0 16 16"><path d="M2 6h7a4 4 0 0 1 0 8H5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none" /><path d="M5 3L2 6l3 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none" /></svg>
-}
-function IconRedo() {
-    return <svg width="16" height="16" viewBox="0 0 16 16"><path d="M14 6H7a4 4 0 0 0 0 8h4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none" /><path d="M11 3l3 3-3 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none" /></svg>
-}
-
-function getToolIcon(id) {
-    switch (id) {
-        case 'line': return <IconLine />
-        case 'rect': return <IconRect />
-        case 'circle': return <IconCircle />
-        case 'arrow': return <IconArrow />
-        case 'eraser': return <IconEraser />
+/* ─── Shape path helpers ─── */
+function shapePath(type, x, y, w, h) {
+    switch (type) {
+        case 'rect': return null // use rect element
+        case 'circle': return null
+        case 'diamond': {
+            const cx = x + w / 2, cy = y + h / 2
+            return `M${cx},${y} L${x + w},${cy} L${cx},${y + h} L${x},${cy} Z`
+        }
+        case 'hexagon': {
+            const cx = x + w / 2, cy = y + h / 2, rx = w / 2, ry = h / 2
+            const pts = []
+            for (let i = 0; i < 6; i++) {
+                const a = Math.PI / 180 * (60 * i - 30)
+                pts.push(`${cx + rx * Math.cos(a)},${cy + ry * Math.sin(a)}`)
+            }
+            return `M${pts.join('L')}Z`
+        }
+        case 'cylinder': {
+            const rx = w / 2, ry = 14, cx = x + rx
+            return `M${x},${y + ry} Q${x},${y} ${cx},${y} Q${x + w},${y} ${x + w},${y + ry} L${x + w},${y + h - ry} Q${x + w},${y + h} ${cx},${y + h} Q${x},${y + h} ${x},${y + h - ry} Z`
+        }
+        case 'parallelogram': {
+            const sk = w * 0.18
+            return `M${x + sk},${y} L${x + w},${y} L${x + w - sk},${y + h} L${x},${y + h} Z`
+        }
+        case 'cloud': {
+            // simplified cloud
+            const cx = x + w / 2, cy = y + h / 2
+            return `M${x + w * 0.2},${cy + h * 0.2} Q${x + w * 0.05},${cy + h * 0.2} ${x + w * 0.1},${cy} Q${x + w * 0.08},${y + h * 0.1} ${x + w * 0.25},${y + h * 0.15} Q${x + w * 0.3},${y} ${cx},${y + h * 0.05} Q${x + w * 0.65},${y} ${x + w * 0.75},${y + h * 0.15} Q${x + w * 0.95},${y + h * 0.1} ${x + w * 0.9},${cy} Q${x + w * 0.98},${cy + h * 0.2} ${x + w * 0.8},${cy + h * 0.2} Q${x + w * 0.85},${y + h} ${x + w * 0.5},${y + h} Q${x + w * 0.15},${y + h} ${x + w * 0.2},${cy + h * 0.2} Z`
+        }
+        case 'note': {
+            const fold = 16
+            return `M${x},${y} L${x + w - fold},${y} L${x + w},${y + fold} L${x + w},${y + h} L${x},${y + h} Z M${x + w - fold},${y} L${x + w - fold},${y + fold} L${x + w},${y + fold}`
+        }
         default: return null
     }
 }
 
-/* ── Drawing helpers ── */
-function roughPoint(x, y, size) {
-    return [x + (Math.random() - 0.5) * ROUGHNESS * size * 0.5, y + (Math.random() - 0.5) * ROUGHNESS * size * 0.5]
-}
-
-function drawRoughRect(ctx, x1, y1, x2, y2) {
-    const j = () => (Math.random() - 0.5) * ROUGHNESS * 3
-    for (let pass = 0; pass < 2; pass++) {
-        const s = pass === 0 ? 1 : 0.5
-        ctx.beginPath()
-        ctx.moveTo(x1 + j() * s, y1 + j() * s)
-        ctx.lineTo(x2 + j() * s, y1 + j() * s)
-        ctx.lineTo(x2 + j() * s, y2 + j() * s)
-        ctx.lineTo(x1 + j() * s, y2 + j() * s)
-        ctx.lineTo(x1 + j() * s, y1 + j() * s)
-        ctx.stroke()
-    }
-}
-
-function drawRoughCircle(ctx, cx, cy, rx, ry) {
-    const steps = 36
-    const j = () => (Math.random() - 0.5) * ROUGHNESS * 2
-    for (let pass = 0; pass < 2; pass++) {
-        ctx.beginPath()
-        for (let i = 0; i <= steps; i++) {
-            const a = (i / steps) * Math.PI * 2
-            const x = cx + rx * Math.cos(a) + j()
-            const y = cy + ry * Math.sin(a) + j()
-            i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y)
-        }
-        ctx.stroke()
-    }
-}
-
-function drawPath(ctx, p) {
+/* ─── Canvas drawing engine ─── */
+function drawElement(ctx, el, selected, panX, panY, zoom) {
     ctx.save()
-    ctx.strokeStyle = p.color
-    ctx.lineWidth = p.size
+    ctx.translate(panX, panY)
+    ctx.scale(zoom, zoom)
+
+    const { tool, color, size } = el
+    ctx.strokeStyle = color || '#1a1a2e'
+    ctx.lineWidth = size || 2
     ctx.lineCap = 'round'
     ctx.lineJoin = 'round'
-    ctx.globalAlpha = p.tool === 'eraser' ? 1 : 0.92
+    ctx.globalAlpha = 0.93
 
-    if (p.tool === 'eraser') {
+    if (tool === 'eraser') {
         ctx.globalCompositeOperation = 'destination-out'
         ctx.strokeStyle = 'rgba(0,0,0,1)'
-    }
-
-    if (p.tool === 'pencil' || p.tool === 'eraser') {
-        if (p.points.length < 2) { ctx.restore(); return }
-        ctx.beginPath()
-        ctx.moveTo(p.points[0][0], p.points[0][1])
-        for (let i = 1; i < p.points.length; i++) ctx.lineTo(p.points[i][0], p.points[i][1])
-        ctx.stroke()
-    } else if (p.tool === 'line') {
-        const [x1, y1] = roughPoint(p.x1, p.y1, p.size)
-        const [x2, y2] = roughPoint(p.x2, p.y2, p.size)
-        ctx.beginPath()
-        ctx.moveTo(x1, y1)
-        ctx.lineTo(x2, y2)
-        ctx.stroke()
-    } else if (p.tool === 'rect') {
-        drawRoughRect(ctx, p.x1, p.y1, p.x2, p.y2)
-    } else if (p.tool === 'circle') {
-        const cx = (p.x1 + p.x2) / 2, cy = (p.y1 + p.y2) / 2
-        const rx = Math.abs(p.x2 - p.x1) / 2, ry = Math.abs(p.y2 - p.y1) / 2
-        drawRoughCircle(ctx, cx, cy, rx, ry)
-    } else if (p.tool === 'arrow') {
-        const dx = p.x2 - p.x1, dy = p.y2 - p.y1
-        const len = Math.sqrt(dx * dx + dy * dy)
-        if (len < 2) { ctx.restore(); return }
-        const nx = dx / len, ny = dy / len
-        const hs = Math.min(16, len * 0.35)
-        ctx.beginPath()
-        ctx.moveTo(p.x1, p.y1)
-        ctx.lineTo(p.x2, p.y2)
-        ctx.stroke()
-        ctx.beginPath()
-        ctx.moveTo(p.x2, p.y2)
-        ctx.lineTo(p.x2 - nx * hs + ny * hs * 0.4, p.y2 - ny * hs - nx * hs * 0.4)
-        ctx.lineTo(p.x2 - nx * hs - ny * hs * 0.4, p.y2 - ny * hs + nx * hs * 0.4)
-        ctx.closePath()
-        ctx.fillStyle = p.color
-        ctx.fill()
-    } else if (p.tool === 'text') {
-        ctx.font = `${p.size * 5 + 14}px 'Caveat', cursive`
-        ctx.fillStyle = p.color
         ctx.globalAlpha = 1
-        const lines = p.text.split('\n')
-        lines.forEach((line, i) => ctx.fillText(line, p.x1, p.y1 + i * (p.size * 5 + 14) * 1.2))
     }
 
-    if (p.selected) {
+    if (tool === 'vanish') {
+        const age = el._alpha ?? 1
+        if (age <= 0) { ctx.restore(); return }
+        ctx.save()
         ctx.globalCompositeOperation = 'source-over'
-        ctx.globalAlpha = 0.5
-        ctx.strokeStyle = '#6366f1'
-        ctx.lineWidth = 1
-        ctx.setLineDash([4, 3])
-        const b = getBounds(p)
-        ctx.strokeRect(b.x - 6, b.y - 6, b.w + 12, b.h + 12)
+        ctx.globalAlpha = age * 0.92
+        ctx.lineWidth = (size || 3) * 1.4
+        ctx.strokeStyle = '#ff2d55'
+        ctx.shadowColor = '#ff2d55'
+        ctx.shadowBlur = 10 * age
+        const pts = el.points || []
+        if (pts.length < 2) { ctx.restore(); ctx.restore(); return }
+        ctx.beginPath()
+        ctx.moveTo(pts[0][0], pts[0][1])
+        for (let i = 1; i < pts.length - 1; i++) {
+            const mx = (pts[i][0] + pts[i + 1][0]) / 2, my = (pts[i][1] + pts[i + 1][1]) / 2
+            ctx.quadraticCurveTo(pts[i][0], pts[i][1], mx, my)
+        }
+        ctx.lineTo(pts[pts.length - 1][0], pts[pts.length - 1][1])
+        ctx.stroke()
+        // inner bright core
+        ctx.globalAlpha = age * 0.6
+        ctx.lineWidth = (size || 3) * 0.5
+        ctx.strokeStyle = '#ffffff'
+        ctx.shadowBlur = 4
+        ctx.stroke()
+        ctx.restore()
+        ctx.restore()
+        return
+    }
+
+    if (tool === 'pencil' || tool === 'eraser' || tool === 'pen' || tool === 'highlighter') {
+        if (tool === 'highlighter') {
+            ctx.globalAlpha = 0.35
+            ctx.lineWidth = (size || 3) * 6
+        }
+        const pts = el.points || []
+        if (pts.length < 2) { ctx.restore(); return }
+        ctx.beginPath()
+        ctx.moveTo(pts[0][0], pts[0][1])
+        if (pts.length === 2) {
+            ctx.lineTo(pts[1][0], pts[1][1])
+        } else {
+            for (let i = 1; i < pts.length - 1; i++) {
+                const mx = (pts[i][0] + pts[i + 1][0]) / 2
+                const my = (pts[i][1] + pts[i + 1][1]) / 2
+                ctx.quadraticCurveTo(pts[i][0], pts[i][1], mx, my)
+            }
+            ctx.lineTo(pts[pts.length - 1][0], pts[pts.length - 1][1])
+        }
+        ctx.stroke()
+    } else if (tool === 'line' || tool === 'arrow' || tool === 'dashed-arrow' || tool === 'double-arrow') {
+        const dashStyle = el.arrowStyle === 'dashed' ? [8, 5] : el.arrowStyle === 'dotted' ? [2, 5] : []
+        ctx.setLineDash(dashStyle)
+        ctx.beginPath()
+        ctx.moveTo(el.x1, el.y1)
+        ctx.lineTo(el.x2, el.y2)
+        ctx.stroke()
         ctx.setLineDash([])
+        const drawHead = (x2, y2, x1, y1) => {
+            const dx = x2 - x1, dy = y2 - y1
+            const len = Math.sqrt(dx * dx + dy * dy)
+            if (len < 4) return
+            const nx = dx / len, ny = dy / len
+            const hs = Math.max(12, size * 4)
+            if (el.arrowEnd === 'circle') {
+                ctx.beginPath()
+                ctx.arc(x2, y2, hs * 0.4, 0, Math.PI * 2)
+                ctx.fillStyle = color || '#1a1a2e'
+                ctx.fill()
+            } else if (el.arrowEnd !== 'none') {
+                ctx.beginPath()
+                ctx.moveTo(x2, y2)
+                ctx.lineTo(x2 - nx * hs + ny * hs * 0.4, y2 - ny * hs - nx * hs * 0.4)
+                ctx.lineTo(x2 - nx * hs - ny * hs * 0.4, y2 - ny * hs + nx * hs * 0.4)
+                ctx.closePath()
+                if (el.arrowEnd === 'filled') { ctx.fillStyle = color || '#1a1a2e'; ctx.fill() }
+                else ctx.stroke()
+            }
+        }
+        if (tool === 'arrow' || tool === 'dashed-arrow') drawHead(el.x2, el.y2, el.x1, el.y1)
+        if (tool === 'double-arrow') { drawHead(el.x2, el.y2, el.x1, el.y1); drawHead(el.x1, el.y1, el.x2, el.y2) }
+    } else if (tool === 'rect') {
+        ctx.beginPath()
+        const r = el.radius || 0
+        const x = Math.min(el.x1, el.x2), y = Math.min(el.y1, el.y2)
+        const w = Math.abs(el.x2 - el.x1), h = Math.abs(el.y2 - el.y1)
+        if (r > 0 && ctx.roundRect) ctx.roundRect(x, y, w, h, r)
+        else ctx.rect(x, y, w, h)
+        if (el.fill) { ctx.fillStyle = el.fill; ctx.fill() }
+        ctx.stroke()
+    } else if (tool === 'circle') {
+        const cx = (el.x1 + el.x2) / 2, cy = (el.y1 + el.y2) / 2
+        const rx = Math.abs(el.x2 - el.x1) / 2, ry = Math.abs(el.y2 - el.y1) / 2
+        ctx.beginPath()
+        ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2)
+        if (el.fill) { ctx.fillStyle = el.fill; ctx.fill() }
+        ctx.stroke()
+    } else if (tool === 'shape') {
+        const x = Math.min(el.x1, el.x2), y = Math.min(el.y1, el.y2)
+        const w = Math.abs(el.x2 - el.x1) || 80, h = Math.abs(el.y2 - el.y1) || 60
+        const p = shapePath(el.shapeType, x, y, w, h)
+        if (p) {
+            const path2d = new Path2D(p)
+            if (el.fill) { ctx.fillStyle = el.fill; ctx.fill(path2d) }
+            ctx.stroke(path2d)
+        } else if (el.shapeType === 'rect') {
+            if (el.fill) { ctx.fillStyle = el.fill; ctx.fillRect(x, y, w, h) }
+            ctx.strokeRect(x, y, w, h)
+        } else if (el.shapeType === 'circle') {
+            ctx.beginPath()
+            ctx.ellipse(x + w / 2, y + h / 2, w / 2, h / 2, 0, 0, Math.PI * 2)
+            if (el.fill) { ctx.fillStyle = el.fill; ctx.fill() }
+            ctx.stroke()
+        }
+        // shape label
+        if (el.label) {
+            ctx.font = `${el.labelSize || 14}px ${el.labelFont || "'DM Sans', sans-serif"}`
+            ctx.fillStyle = el.labelColor || color || '#1a1a2e'
+            ctx.globalAlpha = 1
+            ctx.textAlign = 'center'
+            ctx.textBaseline = 'middle'
+            const lx = x + w / 2, ly = y + h / 2
+            const lines = el.label.split('\n')
+            lines.forEach((ln, i) => {
+                ctx.fillText(ln, lx, ly + (i - (lines.length - 1) / 2) * (el.labelSize || 14) * 1.3)
+            })
+            ctx.textAlign = 'left'
+            ctx.textBaseline = 'alphabetic'
+        }
+    } else if (tool === 'text' || tool === 'sticky') {
+        const fs = el.fontSize || 18
+        const font = el.font || "'Kalam', cursive"
+        ctx.font = `${fs}px ${font}`
+        ctx.fillStyle = el.tool === 'sticky' ? '#1a1a2e' : (color || '#1a1a2e')
+        ctx.globalAlpha = 1
+        if (el.tool === 'sticky') {
+            const pad = 12, lh = fs * 1.35
+            const lines = (el.text || '').split('\n')
+            const bw = el.width || 200, bh = Math.max(80, lines.length * lh + pad * 2 + 24)
+            ctx.fillStyle = el.bgColor || '#fef08a'
+            ctx.fillRect(el.x1, el.y1, bw, bh)
+            // header strip
+            ctx.fillStyle = 'rgba(0,0,0,0.08)'
+            ctx.fillRect(el.x1, el.y1, bw, 24)
+            ctx.fillStyle = '#1a1a2e'
+            ctx.font = `${fs}px ${font}`
+            lines.forEach((ln, i) => ctx.fillText(ln, el.x1 + pad, el.y1 + 24 + pad + i * lh))
+            ctx.strokeStyle = 'rgba(0,0,0,0.12)'
+            ctx.lineWidth = 1
+            ctx.strokeRect(el.x1, el.y1, bw, bh)
+        } else {
+            const lines = (el.text || '').split('\n')
+            lines.forEach((ln, i) => ctx.fillText(ln, el.x1, el.y1 + i * fs * 1.35))
+        }
+    } else if (tool === 'image' && el.img) {
+        const x = Math.min(el.x1, el.x2), y = Math.min(el.y1, el.y2)
+        const w = Math.abs(el.x2 - el.x1) || el.img.naturalWidth || 200
+        const h = Math.abs(el.y2 - el.y1) || el.img.naturalHeight || 150
+        ctx.drawImage(el.img, x, y, w, h)
+    }
+
+    // selection highlight
+    if (selected) {
+        ctx.globalCompositeOperation = 'source-over'
+        ctx.globalAlpha = 1
+        ctx.strokeStyle = '#6366f1'
+        ctx.lineWidth = 1.5 / zoom
+        ctx.setLineDash([5 / zoom, 3 / zoom])
+        const b = getElementBounds(el)
+        ctx.strokeRect(b.x - 8, b.y - 8, b.w + 16, b.h + 16)
+        ctx.setLineDash([])
+        // handles
+        const handles = getHandles(b)
+        ctx.fillStyle = '#ffffff'
+        handles.forEach(([hx, hy]) => {
+            ctx.beginPath()
+            ctx.arc(hx, hy, 5 / zoom, 0, Math.PI * 2)
+            ctx.fill()
+            ctx.strokeStyle = '#6366f1'
+            ctx.lineWidth = 1.5 / zoom
+            ctx.stroke()
+        })
     }
 
     ctx.restore()
 }
 
-function getBounds(p) {
-    if (p.tool === 'pencil' || p.tool === 'eraser') {
-        const xs = p.points.map(pt => pt[0]), ys = p.points.map(pt => pt[1])
+function getHandles(b) {
+    return [
+        [b.x, b.y], [b.x + b.w / 2, b.y], [b.x + b.w, b.y],
+        [b.x + b.w, b.y + b.h / 2], [b.x + b.w, b.y + b.h],
+        [b.x + b.w / 2, b.y + b.h], [b.x, b.y + b.h], [b.x, b.y + b.h / 2]
+    ]
+}
+
+function getElementBounds(el) {
+    if (el.points) {
+        const xs = el.points.map(p => p[0]), ys = el.points.map(p => p[1])
         const x = Math.min(...xs), y = Math.min(...ys)
-        return { x, y, w: Math.max(Math.max(...xs) - x, 1), h: Math.max(Math.max(...ys) - y, 1) }
+        return { x, y, w: Math.max(1, Math.max(...xs) - x), h: Math.max(1, Math.max(...ys) - y) }
     }
-    if (p.tool === 'text') return { x: p.x1, y: p.y1 - 20, w: 120, h: 30 }
-    const x = Math.min(p.x1, p.x2), y = Math.min(p.y1, p.y2)
-    return { x, y, w: Math.abs(p.x2 - p.x1) || 1, h: Math.abs(p.y2 - p.y1) || 1 }
+    if (el.tool === 'text') return { x: el.x1, y: el.y1 - 20, w: 180, h: el.fontSize || 18 }
+    if (el.tool === 'sticky') return { x: el.x1, y: el.y1, w: el.width || 200, h: el.height || 100 }
+    const x = Math.min(el.x1 || 0, el.x2 || 0), y = Math.min(el.y1 || 0, el.y2 || 0)
+    return { x, y, w: Math.max(1, Math.abs((el.x2 || 0) - (el.x1 || 0))), h: Math.max(1, Math.abs((el.y2 || 0) - (el.y1 || 0))) }
 }
 
-/* ── Styles ── */
-const styles = {
-    container: {
-        display: 'flex',
-        flexDirection: 'column',
-        width: '100%',
-        height: '100%',
-        minHeight: 600,
-        background: '#ffffff',
-        borderRadius: 12,
-        border: '0.5px solid #e5e5e5',
-        overflow: 'hidden',
-        fontFamily: 'system-ui, sans-serif',
-    },
-    toolbar: {
-        display: 'flex',
-        alignItems: 'center',
-        gap: 4,
-        padding: '8px 12px',
-        background: '#f9f9f8',
-        borderBottom: '0.5px solid #e5e5e5',
-        flexWrap: 'wrap',
-    },
-    toolGroup: { display: 'flex', gap: 2, alignItems: 'center' },
-    sep: { width: 0.5, height: 28, background: '#d0d0d0', margin: '0 4px' },
-    toolBtn: (active) => ({
-        width: 32,
-        height: 32,
-        border: active ? '0.5px solid #c0c0c0' : '0.5px solid transparent',
-        borderRadius: 6,
-        background: active ? '#ffffff' : 'transparent',
-        cursor: 'pointer',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        fontSize: 15,
-        color: active ? '#111' : '#666',
-        boxShadow: active ? '0 0 0 2px #6366f130' : 'none',
-        transition: 'all 0.1s',
-    }),
-    colorSwatch: (active, bg) => ({
-        width: 20,
-        height: 20,
-        borderRadius: '50%',
-        border: active ? '2px solid #111' : '2px solid transparent',
-        background: bg,
-        cursor: 'pointer',
-        transform: active ? 'scale(1.2)' : 'scale(1)',
-        transition: 'all 0.1s',
-    }),
-    sizeSlider: { width: 60, accentColor: '#6366f1' },
-    canvasWrap: { flex: 1, position: 'relative', overflow: 'hidden' },
-    canvas: (tool) => ({
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        cursor: tool === 'pan' ? 'grab' : tool === 'text' ? 'text' : tool === 'select' ? 'default' : 'crosshair',
-        touchAction: 'none',
-    }),
-    textArea: {
-        position: 'absolute',
-        border: '1.5px dashed #6366f1',
-        background: 'transparent',
-        outline: 'none',
-        fontFamily: "'Caveat', cursive",
-        padding: '4px 8px',
-        minWidth: 80,
-        minHeight: 32,
-        resize: 'none',
-        borderRadius: 4,
-    },
-    status: {
-        fontSize: 11,
-        color: '#999',
-        padding: '4px 12px',
-        borderTop: '0.5px solid #e5e5e5',
-        background: '#f9f9f8',
-        display: 'flex',
-        justifyContent: 'space-between',
-    },
-    kbd: {
-        background: '#fff',
-        border: '0.5px solid #d0d0d0',
-        borderRadius: 3,
-        padding: '1px 5px',
-        fontSize: 10,
-        marginRight: 4,
-    },
+function hitTest(el, px, py) {
+    const b = getElementBounds(el)
+    return px >= b.x - 10 && px <= b.x + b.w + 10 && py >= b.y - 10 && py <= b.y + b.h + 10
 }
 
-/* ── Component ── */
-const Creatives = () => {
+/* ─── Icon components ─── */
+const Icon = ({ d, size = 16 }) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d={d} /></svg>
+
+const icons = {
+    pencil: 'M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z',
+    pen: 'M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z',
+    highlight: 'M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 3v18m0 0h10a2 2 0 0 0 2-2v-4M9 21H5a2 2 0 0 1-2-2v-4m0 0h18',
+    eraser: 'M20 20H7L3 16l13.3-13.3a1 1 0 0 1 1.4 0l4.3 4.3a1 1 0 0 1 0 1.4L9.4 17',
+    line: 'M5 19L19 5',
+    arrow: 'M5 12h14M12 5l7 7-7 7',
+    rect: 'M3 3h18v18H3z',
+    circle: 'M12 12m-9 0a9 9 0 1 0 18 0a9 9 0 1 0-18 0',
+    text: 'M4 6h16M4 12h16M4 18h7',
+    sticky: 'M14 2H6a2 2 0 0 0-2 2v16l4-4h10a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2z',
+    shape: 'M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z',
+    image: 'M21 19V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2zM8.5 13.5l2.5 3 3.5-4.5 4.5 6H5l3.5-4.5z',
+    select: 'M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z',
+    pan: 'M5 9l-3 3 3 3M9 5l3-3 3 3M15 19l-3 3-3-3M19 9l3 3-3 3M2 12h20M12 2v20',
+    undo: 'M3 7v6h6M3 13A9 9 0 1 0 5.17 5.17',
+    redo: 'M21 7v6h-6M21 13A9 9 0 1 1 18.83 5.17',
+    trash: 'M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2',
+    download: 'M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3',
+    zoomIn: 'M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM21 21l-4.35-4.35M11 8v6M8 11h6',
+    zoomOut: 'M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM21 21l-4.35-4.35M8 11h6',
+    grid: 'M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z',
+    layers: 'M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5',
+    lock: 'M19 11H5a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7a2 2 0 0 0-2-2zM7 11V7a5 5 0 0 1 10 0v4',
+    copy: 'M20 9H11a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2v-9a2 2 0 0 0-2-2zM5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1',
+    close: 'M18 6L6 18M6 6l12 12',
+    menu: 'M3 12h18M3 6h18M3 18h18',
+    frame: 'M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3',
+    table: 'M3 3h18v18H3zM3 9h18M3 15h18M9 3v18M15 3v18',
+    code: 'M16 18l6-6-6-6M8 6l-6 6 6 6',
+    link: 'M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71',
+    vanish: 'M3 12c0-1 .5-2 1.5-2.5S7 9 8 10s1 3 2 4 2.5 1.5 4 1c1.5-.5 2.5-2 2-3.5S14 9 13 8.5',
+}
+
+/* ─── Main Component ─── */
+export default function Sketchpad() {
     const canvasRef = useRef(null)
     const wrapRef = useRef(null)
-    const textRef = useRef(null)
+    const textareaRef = useRef(null)
+    const fileRef = useRef(null)
+
     const stateRef = useRef({
-        paths: [],
-        redoStack: [],
-        currentPath: null,
+        elements: [],
+        redo: [],
+        current: null,
         drawing: false,
         panOffset: { x: 0, y: 0 },
         panStart: null,
         zoom: 1,
-        selectedIdx: -1,
+        selectedIds: new Set(),
+        dragStart: null,
+        dragEls: null,
+        resizeHandle: null,
+        idCounter: 0,
     })
 
-    const [activeTool, setActiveTool] = useState('pencil')
-    const [activeColor, setActiveColor] = useState('#1e1e1e')
-    const [strokeSize, setStrokeSize] = useState(3)
+    const [tool, setTool] = useState('pencil')
+    const [color, setColor] = useState('#1a1a2e')
+    const [fill, setFill] = useState('none')
+    const [strokeSize, setStrokeSize] = useState(2)
+    const [fontSize, setFontSize] = useState(18)
+    const [fontIdx, setFontIdx] = useState(0)
     const [zoom, setZoom] = useState(1)
-    const [textPos, setTextPos] = useState(null)
-    const [textColor, setTextColor] = useState('#1e1e1e')
-    const [textFontSize, setTextFontSize] = useState(29)
+    const [bg, setBg] = useState('dot')
+    const [shapeType, setShapeType] = useState('rect')
+    const [arrowStyle, setArrowStyle] = useState('line')
+    const [arrowEnd, setArrowEnd] = useState('arrow')
+    const [textInput, setTextInput] = useState(null)
+    const [stickyColor, setStickyColor] = useState(STICKY_COLORS[0])
+    const [showPanel, setShowPanel] = useState(!isMobile())
+    const [showShapePanel, setShowShapePanel] = useState(false)
+    const [showColorPanel, setShowColorPanel] = useState(false)
+    const [showBgPanel, setShowBgPanel] = useState(false)
+    const [mobileTab, setMobileTab] = useState('draw')
+    const [labelMode, setLabelMode] = useState(null) // {id, x, y, val}
+    const [selectedEl, setSelectedEl] = useState(null)
 
     const toolRef = useRef('pencil')
-    const colorRef = useRef('#1e1e1e')
-    const sizeRef = useRef(3)
+    const colorRef = useRef('#1a1a2e')
+    const fillRef = useRef('none')
+    const sizeRef = useRef(2)
+    const fontSizeRef = useRef(18)
+    const fontRef = useRef(0)
+    const shapeRef = useRef('rect')
+    const arrowStyleRef = useRef('line')
+    const arrowEndRef = useRef('arrow')
+    const stickyColorRef = useRef(STICKY_COLORS[0])
+    const vanishStrokesRef = useRef([])
+    const animFrameRef = useRef(null)
 
-    useEffect(() => { toolRef.current = activeTool }, [activeTool])
-    useEffect(() => { colorRef.current = activeColor }, [activeColor])
+    useEffect(() => { toolRef.current = tool }, [tool])
+    useEffect(() => { colorRef.current = color }, [color])
+    useEffect(() => { fillRef.current = fill }, [fill])
     useEffect(() => { sizeRef.current = strokeSize }, [strokeSize])
+    useEffect(() => { fontSizeRef.current = fontSize }, [fontSize])
+    useEffect(() => { fontRef.current = fontIdx }, [fontIdx])
+    useEffect(() => { shapeRef.current = shapeType }, [shapeType])
+    useEffect(() => { arrowStyleRef.current = arrowStyle }, [arrowStyle])
+    useEffect(() => { arrowEndRef.current = arrowEnd }, [arrowEnd])
+    useEffect(() => { stickyColorRef.current = stickyColor }, [stickyColor])
 
+    const newId = () => { stateRef.current.idCounter++; return stateRef.current.idCounter }
+
+    /* ─── Canvas background ─── */
+    const drawBackground = useCallback((ctx, w, h, bgStyle, panX, panY, z) => {
+        if (bgStyle === '#1a1a2e') {
+            ctx.fillStyle = '#1a1a2e'; ctx.fillRect(0, 0, w, h)
+        } else if (bgStyle === '#ffffff') {
+            ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, w, h)
+        } else {
+            ctx.fillStyle = '#fafaf9'; ctx.fillRect(0, 0, w, h)
+        }
+        const spacing = 24 * z
+        const ox = (panX % spacing + spacing) % spacing
+        const oy = (panY % spacing + spacing) % spacing
+        ctx.save()
+        if (bgStyle === 'dot') {
+            ctx.fillStyle = '#d4d4d0'
+            for (let x = ox - spacing; x < w + spacing; x += spacing)
+                for (let y = oy - spacing; y < h + spacing; y += spacing) {
+                    ctx.beginPath(); ctx.arc(x, y, 1.2, 0, Math.PI * 2); ctx.fill()
+                }
+        } else if (bgStyle === 'grid') {
+            ctx.strokeStyle = '#e4e4e0'; ctx.lineWidth = 0.5
+            for (let x = ox - spacing; x < w + spacing; x += spacing) {
+                ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke()
+            }
+            for (let y = oy - spacing; y < h + spacing; y += spacing) {
+                ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke()
+            }
+        } else if (bgStyle === 'line') {
+            ctx.strokeStyle = '#e0e0dc'; ctx.lineWidth = 0.6
+            for (let y = oy - spacing; y < h + spacing; y += spacing) {
+                ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke()
+            }
+        }
+        ctx.restore()
+    }, [])
+
+    /* ─── Redraw ─── */
     const redraw = useCallback(() => {
         const canvas = canvasRef.current
         if (!canvas) return
         const ctx = canvas.getContext('2d')
         const s = stateRef.current
-        ctx.clearRect(0, 0, canvas.width, canvas.height)
-        ctx.save()
-        ctx.translate(s.panOffset.x, s.panOffset.y)
-        ctx.scale(s.zoom, s.zoom)
-        s.paths.forEach(p => drawPath(ctx, p))
-        if (s.currentPath) drawPath(ctx, s.currentPath)
-        ctx.restore()
-    }, [])
+        const bgOpt = BG_OPTIONS.find(b => b.id === bg) || BG_OPTIONS[0]
+        drawBackground(ctx, canvas.width, canvas.height, bgOpt.style, s.panOffset.x, s.panOffset.y, s.zoom)
+        s.elements.forEach(el => {
+            drawElement(ctx, el, s.selectedIds.has(el.id), s.panOffset.x, s.panOffset.y, s.zoom)
+        })
+        if (s.current) drawElement(ctx, s.current, false, s.panOffset.x, s.panOffset.y, s.zoom)
+    }, [bg, drawBackground])
 
     const resize = useCallback(() => {
         const canvas = canvasRef.current
@@ -316,11 +463,11 @@ const Creatives = () => {
     }, [redraw])
 
     useEffect(() => {
-        const link = document.createElement('link')
-        link.rel = 'stylesheet'
-        link.href = 'https://fonts.googleapis.com/css2?family=Caveat:wght@400;600&display=swap'
-        document.head.appendChild(link)
-        return () => document.head.removeChild(link)
+        const fonts = document.createElement('link')
+        fonts.rel = 'stylesheet'
+        fonts.href = 'https://fonts.googleapis.com/css2?family=Kalam:wght@400;700&family=Space+Mono:wght@400;700&family=DM+Sans:wght@400;500;700&display=swap'
+        document.head.appendChild(fonts)
+        return () => { try { document.head.removeChild(fonts) } catch { } }
     }, [])
 
     useEffect(() => {
@@ -330,267 +477,894 @@ const Creatives = () => {
         return () => ro.disconnect()
     }, [resize])
 
+    useEffect(() => { redraw() }, [redraw, bg])
+
+    /* ─── Coords ─── */
     const getPos = useCallback((e) => {
         const canvas = canvasRef.current
         if (!canvas) return { x: 0, y: 0 }
         const r = canvas.getBoundingClientRect()
         const s = stateRef.current
-        const clientX = e.touches ? e.touches[0].clientX : e.clientX
-        const clientY = e.touches ? e.touches[0].clientY : e.clientY
+        const ce = e.touches ? e.touches[0] : e
         return {
-            x: (clientX - r.left - s.panOffset.x) / s.zoom,
-            y: (clientY - r.top - s.panOffset.y) / s.zoom,
+            x: (ce.clientX - r.left - s.panOffset.x) / s.zoom,
+            y: (ce.clientY - r.top - s.panOffset.y) / s.zoom,
         }
     }, [])
 
-    const handleSelect = useCallback((pos) => {
+    /* ─── Events ─── */
+    /* ─── Vanish pen animation loop ─── */
+    const vanishRedraw = useCallback(() => {
+        const canvas = canvasRef.current
+        if (!canvas) return
+        const ctx = canvas.getContext('2d')
         const s = stateRef.current
-        s.paths.forEach(p => (p.selected = false))
-        for (let i = s.paths.length - 1; i >= 0; i--) {
-            const b = getBounds(s.paths[i])
-            if (pos.x >= b.x - 8 && pos.x <= b.x + b.w + 8 && pos.y >= b.y - 8 && pos.y <= b.y + b.h + 8) {
-                s.paths[i].selected = true
-                s.selectedIdx = i
-                redraw()
-                return
+        const now = Date.now()
+        const bgOpt = BG_OPTIONS.find(b => b.id === bg) || BG_OPTIONS[0]
+        // update alphas
+        vanishStrokesRef.current.forEach(vs => {
+            if (!vs.createdAt) { vs._alpha = 1; return }  // still being drawn
+            const age = now - vs.createdAt
+            if (age < VANISH_DURATION) {
+                vs._alpha = 1
+            } else {
+                const fade = age - VANISH_DURATION
+                vs._alpha = Math.max(0, 1 - fade / VANISH_FADE)
             }
+        })
+        // remove fully faded (only ones that have finished drawing)
+        vanishStrokesRef.current = vanishStrokesRef.current.filter(vs => !vs.createdAt || vs._alpha > 0)
+        // only keep looping if there are vanish strokes
+        const hasVanish = vanishStrokesRef.current.length > 0 || (s.drawing && toolRef.current === 'vanish')
+        if (hasVanish || s.drawing) {
+            drawBackground(ctx, canvas.width, canvas.height, bgOpt.style, s.panOffset.x, s.panOffset.y, s.zoom)
+            s.elements.forEach(el => drawElement(ctx, el, s.selectedIds.has(el.id), s.panOffset.x, s.panOffset.y, s.zoom))
+            if (s.current) drawElement(ctx, s.current, false, s.panOffset.x, s.panOffset.y, s.zoom)
+            // draw vanish strokes on top (world space, same transform as normal elements)
+            vanishStrokesRef.current.forEach(vs => drawElement(ctx, vs, false, s.panOffset.x, s.panOffset.y, s.zoom))
         }
-        s.selectedIdx = -1
-        redraw()
-    }, [redraw])
+        if (hasVanish) {
+            animFrameRef.current = requestAnimationFrame(vanishRedraw)
+        } else {
+            animFrameRef.current = null
+            redraw()
+        }
+    }, [bg, redraw, drawBackground])
+
+    const startVanishLoop = useCallback(() => {
+        if (animFrameRef.current) return
+        animFrameRef.current = requestAnimationFrame(vanishRedraw)
+    }, [vanishRedraw])
 
     const onDown = useCallback((e) => {
+        if (e.target !== canvasRef.current) return
+        e.preventDefault()
         const pos = getPos(e)
         const s = stateRef.current
-        const tool = toolRef.current
-        if (tool === 'pan') {
-            s.panStart = { x: e.clientX - s.panOffset.x, y: e.clientY - s.panOffset.y }
-            s.drawing = true
-            return
+        const t = toolRef.current
+
+        if (t === 'pan') {
+            const ce = e.touches ? e.touches[0] : e
+            s.panStart = { x: ce.clientX - s.panOffset.x, y: ce.clientY - s.panOffset.y }
+            s.drawing = true; return
         }
-        if (tool === 'text') {
+
+        if (t === 'select') {
+            // check handles first
+            if (s.selectedIds.size === 1) {
+                const selEl = s.elements.find(el => s.selectedIds.has(el.id))
+                if (selEl) {
+                    const b = getElementBounds(selEl)
+                    const handles = getHandles(b)
+                    for (let i = 0; i < handles.length; i++) {
+                        const [hx, hy] = handles[i]
+                        const dist = Math.sqrt((pos.x - hx) ** 2 + (pos.y - hy) ** 2)
+                        if (dist < 10 / s.zoom) {
+                            s.resizeHandle = { idx: i, el: selEl, origBounds: { ...b } }
+                            s.drawing = true; return
+                        }
+                    }
+                }
+            }
+            // find element
+            let found = null
+            for (let i = s.elements.length - 1; i >= 0; i--) {
+                if (hitTest(s.elements[i], pos.x, pos.y)) { found = s.elements[i]; break }
+            }
+            if (found) {
+                const ce = e.touches ? e.touches[0] : e
+                if (!(e.shiftKey || e.ctrlKey || e.metaKey)) {
+                    if (!s.selectedIds.has(found.id)) s.selectedIds = new Set([found.id])
+                } else {
+                    const ns = new Set(s.selectedIds)
+                    if (ns.has(found.id)) ns.delete(found.id); else ns.add(found.id)
+                    s.selectedIds = ns
+                }
+                setSelectedEl(s.elements.find(el => s.selectedIds.has(el.id)) || null)
+                s.dragStart = { x: pos.x, y: pos.y }
+                s.dragEls = s.elements.filter(el => s.selectedIds.has(el.id)).map(el => JSON.parse(JSON.stringify(el)))
+                s.drawing = true
+            } else {
+                s.selectedIds = new Set()
+                setSelectedEl(null)
+            }
+            redraw(); return
+        }
+
+        if (t === 'text') {
             const canvas = canvasRef.current
             const r = canvas.getBoundingClientRect()
-            const tx = pos.x * s.zoom + s.panOffset.x
-            const ty = pos.y * s.zoom + s.panOffset.y
-            setTextPos({ left: tx, top: ty, sx: pos.x, sy: pos.y + 20 })
-            setTextColor(colorRef.current)
-            setTextFontSize(sizeRef.current * 5 + 14)
-            setTimeout(() => textRef.current?.focus(), 0)
+            const ce = e.touches ? e.touches[0] : e
+            setTextInput({
+                x: ce.clientX - r.left,
+                y: ce.clientY - r.top,
+                sx: pos.x, sy: pos.y + (fontSizeRef.current || 18),
+                color: colorRef.current,
+                font: FONTS[fontRef.current],
+                fontSize: fontSizeRef.current
+            })
+            setTimeout(() => textareaRef.current?.focus(), 50)
             return
         }
-        if (tool === 'select') { handleSelect(pos); return }
-        s.drawing = true
-        s.redoStack = []
-        if (tool === 'pencil' || tool === 'eraser') {
-            s.currentPath = { tool, color: colorRef.current, size: sizeRef.current, points: [[pos.x, pos.y]] }
-        } else {
-            s.currentPath = { tool, color: colorRef.current, size: sizeRef.current, x1: pos.x, y1: pos.y, x2: pos.x, y2: pos.y }
+
+        if (t === 'sticky') {
+            const id = newId()
+            const el = { id, tool: 'sticky', x1: pos.x, y1: pos.y, text: 'Note', bgColor: stickyColorRef.current, width: 200, height: 100 }
+            s.elements.push(el)
+            s.redo = []
+            redraw()
+            // immediately enter label mode for this sticky
+            const canvas = canvasRef.current
+            const r2 = canvas.getBoundingClientRect()
+            const ce = e.touches ? e.touches[0] : e
+            setTextInput({ x: ce.clientX - r2.left, y: ce.clientY - r2.top, sx: pos.x, sy: pos.y + 30, color: '#1a1a2e', font: FONTS[0], fontSize: 14, stickyId: id })
+            setTimeout(() => textareaRef.current?.focus(), 50)
+            return
         }
-    }, [getPos, handleSelect])
+
+        if (t === 'image') { fileRef.current?.click(); return }
+
+        s.drawing = true
+        s.redo = []
+        const id = newId()
+        if (t === 'vanish') {
+            const stroke = { id, tool: 'vanish', size: sizeRef.current, points: [[pos.x, pos.y]], createdAt: null, _alpha: 1 }
+            vanishStrokesRef.current.push(stroke)
+            s.current = stroke
+            startVanishLoop()
+        } else if (t === 'pencil' || t === 'pen' || t === 'eraser' || t === 'highlighter') {
+            s.current = { id, tool: t, color: colorRef.current, size: sizeRef.current, points: [[pos.x, pos.y]] }
+        } else if (t === 'shape') {
+            s.current = { id, tool: 'shape', shapeType: shapeRef.current, color: colorRef.current, fill: fillRef.current === 'none' ? null : fillRef.current, size: sizeRef.current, x1: pos.x, y1: pos.y, x2: pos.x, y2: pos.y }
+        } else {
+            s.current = { id, tool: t, color: colorRef.current, fill: fillRef.current === 'none' ? null : fillRef.current, size: sizeRef.current, arrowStyle: arrowStyleRef.current, arrowEnd: arrowEndRef.current, x1: pos.x, y1: pos.y, x2: pos.x, y2: pos.y }
+        }
+    }, [getPos, redraw])
 
     const onMove = useCallback((e) => {
         const s = stateRef.current
         if (!s.drawing) return
+        e.preventDefault()
         const pos = getPos(e)
-        const tool = toolRef.current
-        if (tool === 'pan' && s.panStart) {
-            s.panOffset = { x: e.clientX - s.panStart.x, y: e.clientY - s.panStart.y }
-            redraw()
-            return
+        const t = toolRef.current
+
+        if (t === 'pan' && s.panStart) {
+            const ce = e.touches ? e.touches[0] : e
+            s.panOffset = { x: ce.clientX - s.panStart.x, y: ce.clientY - s.panStart.y }
+            redraw(); return
         }
-        if (tool === 'pencil' || tool === 'eraser') {
-            s.currentPath?.points.push([pos.x, pos.y])
-        } else if (s.currentPath) {
-            s.currentPath.x2 = pos.x
-            s.currentPath.y2 = pos.y
+
+        if (t === 'select') {
+            if (s.resizeHandle && s.resizeHandle.el) {
+                // simple resize: move two of the bounds corners
+                const el = s.elements.find(x => x.id === s.resizeHandle.el.id)
+                if (el && el.x1 !== undefined) {
+                    const hi = s.resizeHandle.idx
+                    if (hi === 0 || hi === 6 || hi === 7) el.x1 = pos.x
+                    if (hi === 0 || hi === 1 || hi === 2) el.y1 = pos.y
+                    if (hi === 2 || hi === 3 || hi === 4) el.x2 = pos.x
+                    if (hi === 4 || hi === 5 || hi === 6) el.y2 = pos.y
+                    redraw()
+                }
+                return
+            }
+            if (s.dragStart && s.dragEls) {
+                const dx = pos.x - s.dragStart.x, dy = pos.y - s.dragStart.y
+                s.elements.forEach(el => {
+                    if (!s.selectedIds.has(el.id)) return
+                    const orig = s.dragEls.find(o => o.id === el.id)
+                    if (!orig) return
+                    if (orig.points) el.points = orig.points.map(([px, py]) => [px + dx, py + dy])
+                    else {
+                        if (orig.x1 !== undefined) el.x1 = orig.x1 + dx
+                        if (orig.y1 !== undefined) el.y1 = orig.y1 + dy
+                        if (orig.x2 !== undefined) el.x2 = orig.x2 + dx
+                        if (orig.y2 !== undefined) el.y2 = orig.y2 + dy
+                    }
+                })
+                redraw(); return
+            }
+        }
+
+        if (t === 'pencil' || t === 'pen' || t === 'eraser' || t === 'highlighter' || t === 'vanish') {
+            s.current?.points.push([pos.x, pos.y])
+        } else if (s.current) {
+            s.current.x2 = pos.x; s.current.y2 = pos.y
         }
         redraw()
-    }, [getPos, redraw])
+    }, [getPos, redraw, startVanishLoop])
 
     const onUp = useCallback(() => {
         const s = stateRef.current
         if (!s.drawing) return
         s.drawing = false
         if (toolRef.current === 'pan') { s.panStart = null; return }
-        if (s.currentPath) {
-            const p = s.currentPath
-            const valid = (p.tool === 'pencil' || p.tool === 'eraser')
-                ? p.points.length > 1
-                : Math.abs((p.x2 ?? 0) - (p.x1 ?? 0)) > 2 || Math.abs((p.y2 ?? 0) - (p.y1 ?? 0)) > 2
-            if (valid) s.paths.push(p)
-            s.currentPath = null
-            redraw()
+        if (toolRef.current === 'select') {
+            s.dragStart = null; s.dragEls = null; s.resizeHandle = null; return
         }
-    }, [redraw])
+        if (toolRef.current === 'vanish') {
+            if (s.current) s.current.createdAt = Date.now()
+            s.current = null
+            startVanishLoop()
+            return
+        }
+        if (s.current) {
+            const p = s.current
+            const ok = (p.points?.length > 1) || Math.abs((p.x2 || 0) - (p.x1 || 0)) > 3 || Math.abs((p.y2 || 0) - (p.y1 || 0)) > 3
+            if (ok) s.elements.push(p)
+            s.current = null; redraw()
+        }
+    }, [redraw, startVanishLoop])
 
     const onWheel = useCallback((e) => {
         e.preventDefault()
         const s = stateRef.current
-        const delta = e.deltaY > 0 ? 0.9 : 1.1
-        s.zoom = Math.min(4, Math.max(0.25, s.zoom * delta))
-        setZoom(s.zoom)
+        const canvas = canvasRef.current
+        if (!canvas) return
+        const rect = canvas.getBoundingClientRect()
+        const cx = e.clientX - rect.left
+        const cy = e.clientY - rect.top
+        const wx = (cx - s.panOffset.x) / s.zoom
+        const wy = (cy - s.panOffset.y) / s.zoom
+        const factor = e.deltaY > 0 ? 0.9 : 1.1
+        const newZoom = Math.min(5, Math.max(0.1, s.zoom * factor))
+        s.panOffset = { x: cx - wx * newZoom, y: cy - wy * newZoom }
+        s.zoom = newZoom
+        setZoom(Math.round(newZoom * 100) / 100)
         redraw()
     }, [redraw])
 
-    useEffect(() => {
-        const canvas = canvasRef.current
-        if (!canvas) return
-        canvas.addEventListener('wheel', onWheel, { passive: false })
-        return () => canvas.removeEventListener('wheel', onWheel)
-    }, [onWheel])
-
-    const onTextBlur = useCallback(() => {
-        const txt = textRef.current?.value?.trim()
-        if (txt && textPos) {
-            stateRef.current.paths.push({
-                tool: 'text', color: colorRef.current, size: sizeRef.current,
-                x1: textPos.sx, y1: textPos.sy, text: txt,
-            })
-            redraw()
+    // double-click to add label to shape
+    const onDblClick = useCallback((e) => {
+        const pos = getPos(e)
+        const s = stateRef.current
+        for (let i = s.elements.length - 1; i >= 0; i--) {
+            const el = s.elements[i]
+            if ((el.tool === 'shape' || el.tool === 'rect' || el.tool === 'circle') && hitTest(el, pos.x, pos.y)) {
+                const canvas = canvasRef.current
+                const r = canvas.getBoundingClientRect()
+                const ce = e.touches ? e.touches[0] : e
+                setLabelMode({ id: el.id, x: e.clientX - r.left, y: e.clientY - r.top, val: el.label || '' })
+                return
+            }
         }
-        setTextPos(null)
-        if (textRef.current) textRef.current.value = ''
-    }, [textPos, redraw])
+    }, [getPos])
 
+    useEffect(() => {
+        const c = canvasRef.current
+        if (!c) return
+        c.addEventListener('wheel', onWheel, { passive: false })
+        const onTS = e => { e.preventDefault(); onDown(e) }
+        const onTM = e => { e.preventDefault(); onMove(e) }
+        const onTE = e => { e.preventDefault(); onUp(e) }
+        c.addEventListener('touchstart', onTS, { passive: false })
+        c.addEventListener('touchmove', onTM, { passive: false })
+        c.addEventListener('touchend', onTE, { passive: false })
+        c.addEventListener('touchcancel', onTE, { passive: false })
+        return () => {
+            c.removeEventListener('wheel', onWheel)
+            c.removeEventListener('touchstart', onTS)
+            c.removeEventListener('touchmove', onTM)
+            c.removeEventListener('touchend', onTE)
+            c.removeEventListener('touchcancel', onTE)
+        }
+    }, [onWheel, onDown, onMove, onUp])
+
+
+    /* ─── Text commit ─── */
+    const commitText = useCallback(() => {
+        const txt = textareaRef.current?.value?.trim()
+        const s = stateRef.current
+        if (txt && textInput) {
+            if (textInput.stickyId) {
+                const el = s.elements.find(x => x.id === textInput.stickyId)
+                if (el) { el.text = txt; el.width = Math.max(200, txt.length * 8 + 24) }
+            } else {
+                s.elements.push({ id: newId(), tool: 'text', x1: textInput.sx, y1: textInput.sy, text: txt, color: textInput.color, fontSize: textInput.fontSize, font: textInput.font })
+            }
+            s.redo = []; redraw()
+        }
+        setTextInput(null)
+        if (textareaRef.current) textareaRef.current.value = ''
+    }, [textInput, redraw])
+
+    /* ─── Label commit ─── */
+    const commitLabel = useCallback(() => {
+        if (!labelMode) return
+        const s = stateRef.current
+        const el = s.elements.find(x => x.id === labelMode.id)
+        if (el) { el.label = labelMode.val; el.labelSize = 14; el.labelColor = colorRef.current }
+        s.redo = []; redraw()
+        setLabelMode(null)
+    }, [labelMode, redraw])
+
+    /* ─── Undo/Redo ─── */
     const undo = useCallback(() => {
         const s = stateRef.current
-        if (s.paths.length) { s.redoStack.push(s.paths.pop()); redraw() }
+        if (s.elements.length) { s.redo.push(s.elements.pop()); redraw() }
     }, [redraw])
 
     const redo = useCallback(() => {
         const s = stateRef.current
-        if (s.redoStack.length) { s.paths.push(s.redoStack.pop()); redraw() }
+        if (s.redo.length) { s.elements.push(s.redo.pop()); redraw() }
     }, [redraw])
 
-    const clearCanvas = useCallback(() => {
-        if (window.confirm('Clear canvas?')) {
-            stateRef.current.paths = []
-            stateRef.current.redoStack = []
-            redraw()
+    const clearAll = useCallback(() => {
+        if (window.confirm('Clear everything?')) {
+            stateRef.current.elements = []; stateRef.current.redo = []; stateRef.current.selectedIds = new Set()
+            setSelectedEl(null); redraw()
         }
     }, [redraw])
 
+    /* ─── Delete selected ─── */
+    const deleteSelected = useCallback(() => {
+        const s = stateRef.current
+        if (s.selectedIds.size === 0) return
+        s.elements = s.elements.filter(el => !s.selectedIds.has(el.id))
+        s.selectedIds = new Set(); setSelectedEl(null); s.redo = []; redraw()
+    }, [redraw])
+
+    /* ─── Duplicate ─── */
+    const duplicateSelected = useCallback(() => {
+        const s = stateRef.current
+        const newEls = s.elements.filter(el => s.selectedIds.has(el.id)).map(el => {
+            const copy = JSON.parse(JSON.stringify(el))
+            copy.id = newId()
+            if (copy.points) copy.points = copy.points.map(([px, py]) => [px + 20, py + 20])
+            else { copy.x1 = (copy.x1 || 0) + 20; copy.y1 = (copy.y1 || 0) + 20; if (copy.x2 !== undefined) copy.x2 += 20; if (copy.y2 !== undefined) copy.y2 += 20 }
+            return copy
+        })
+        s.elements.push(...newEls)
+        s.selectedIds = new Set(newEls.map(e => e.id))
+        setSelectedEl(newEls[0] || null); redraw()
+    }, [redraw])
+
+    /* ─── Export PNG ─── */
     const exportPNG = useCallback(() => {
         const canvas = canvasRef.current
         if (!canvas) return
         const a = document.createElement('a')
-        a.download = 'creatives.png'
+        a.download = 'sketchpad.png'
         a.href = canvas.toDataURL('image/png')
         a.click()
     }, [])
 
-    useEffect(() => {
-        const handler = (e) => {
-            if (e.target === textRef.current) return
-            if (e.ctrlKey || e.metaKey) {
-                if (e.key === 'z') { e.preventDefault(); undo() }
-                if (e.key === 'y' || e.key === 'Y') { e.preventDefault(); redo() }
-                return
+    /* ─── Export SVG (rough) ─── */
+    const exportSVG = useCallback(() => {
+        // simple export: just download the canvas as PNG for now (SVG would need full re-render)
+        exportPNG()
+    }, [exportPNG])
+
+    /* ─── Image upload ─── */
+    const handleImageUpload = useCallback((e) => {
+        const file = e.target.files?.[0]
+        if (!file) return
+        const reader = new FileReader()
+        reader.onload = (ev) => {
+            const img = new Image()
+            img.onload = () => {
+                const s = stateRef.current
+                const cx = (canvasRef.current?.width || 600) / 2 / s.zoom - s.panOffset.x / s.zoom
+                const cy = (canvasRef.current?.height || 400) / 2 / s.zoom - s.panOffset.y / s.zoom
+                const w = Math.min(img.naturalWidth, 400), h = img.naturalHeight * (w / img.naturalWidth)
+                s.elements.push({ id: newId(), tool: 'image', img, x1: cx - w / 2, y1: cy - h / 2, x2: cx + w / 2, y2: cy + h / 2 })
+                s.redo = []; redraw()
             }
-            if (e.key === 'Delete' && stateRef.current.selectedIdx >= 0) {
-                stateRef.current.paths.splice(stateRef.current.selectedIdx, 1)
-                stateRef.current.selectedIdx = -1
-                redraw()
-            }
-            const map = { p: 'pencil', r: 'rect', c: 'circle', l: 'line', a: 'arrow', t: 'text', e: 'eraser', v: 'select', h: 'pan' }
-            if (map[e.key]) setActiveTool(map[e.key])
+            img.src = ev.target.result
         }
-        document.addEventListener('keydown', handler)
-        return () => document.removeEventListener('keydown', handler)
-    }, [undo, redo, redraw])
+        reader.readAsDataURL(file)
+        e.target.value = ''
+    }, [redraw])
+
+    /* ─── Zoom helpers ─── */
+    const zoomIn = () => {
+        const s = stateRef.current; s.zoom = Math.min(5, s.zoom * 1.2)
+        setZoom(Math.round(s.zoom * 100) / 100); redraw()
+    }
+    const zoomOut = () => {
+        const s = stateRef.current; s.zoom = Math.max(0.1, s.zoom / 1.2)
+        setZoom(Math.round(s.zoom * 100) / 100); redraw()
+    }
+    const resetZoom = () => {
+        const s = stateRef.current; s.zoom = 1; s.panOffset = { x: 0, y: 0 }
+        setZoom(1); redraw()
+    }
+
+    /* ─── Keyboard ─── */
+    useEffect(() => {
+        const kd = (e) => {
+            if (document.activeElement?.tagName === 'TEXTAREA' || document.activeElement?.tagName === 'INPUT') return
+            if ((e.ctrlKey || e.metaKey) && e.key === 'z') { e.preventDefault(); undo(); return }
+            if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || e.key === 'Y')) { e.preventDefault(); redo(); return }
+            if ((e.ctrlKey || e.metaKey) && e.key === 'd') { e.preventDefault(); duplicateSelected(); return }
+            if (e.key === 'Delete' || e.key === 'Backspace') deleteSelected()
+            if (e.key === 'Escape') { stateRef.current.selectedIds = new Set(); setSelectedEl(null); redraw() }
+            const map = { p: 'pencil', b: 'pen', h: 'highlighter', e: 'eraser', l: 'line', a: 'arrow', r: 'rect', c: 'circle', s: 'shape', t: 'text', n: 'sticky', v: 'select', m: 'pan', i: 'image' }
+            if (map[e.key]) setTool(map[e.key])
+        }
+        document.addEventListener('keydown', kd)
+        return () => document.removeEventListener('keydown', kd)
+    }, [undo, redo, deleteSelected, duplicateSelected, redraw])
+
+    /* ─── Fit to window ─── */
+    const fitToScreen = useCallback(() => {
+        const s = stateRef.current
+        if (!s.elements.length) return
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+        s.elements.forEach(el => {
+            const b = getElementBounds(el)
+            minX = Math.min(minX, b.x); minY = Math.min(minY, b.y)
+            maxX = Math.max(maxX, b.x + b.w); maxY = Math.max(maxY, b.y + b.h)
+        })
+        const canvas = canvasRef.current
+        if (!canvas) return
+        const pad = 60, fw = canvas.width - pad * 2, fh = canvas.height - pad * 2
+        const cw = maxX - minX || 1, ch = maxY - minY || 1
+        const nz = Math.min(fw / cw, fh / ch, 2)
+        s.zoom = nz
+        s.panOffset = { x: pad - minX * nz, y: pad - minY * nz }
+        setZoom(Math.round(nz * 100) / 100)
+        redraw()
+    }, [redraw])
+
+    /* ─── Style ─── */
+    const S = useMemo(() => ({
+        root: {
+            display: 'flex', flexDirection: 'column', width: '100%', height: '100%', minHeight: 500,
+            fontFamily: "'DM Sans', sans-serif", background: '#f5f5f0', overflow: 'hidden', position: 'relative'
+        },
+        topbar: {
+            display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px',
+            background: '#ffffff', borderBottom: '1px solid #e8e8e4',
+            flexWrap: 'nowrap', overflowX: 'auto', minHeight: 48,
+            userSelect: 'none', flexShrink: 0
+        },
+        toolBtn: (active, tid) => ({
+            width: 34, height: 34,
+            border: tid === 'vanish' && active ? '1.5px solid #ff2d55' : active ? '1.5px solid #6366f1' : '1px solid transparent',
+            borderRadius: 8,
+            background: tid === 'vanish' && active ? '#fff0f3' : active ? '#eef2ff' : 'transparent',
+            cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+            color: tid === 'vanish' && active ? '#ff2d55' : active ? '#4f46e5' : '#52525b',
+            transition: 'all 0.12s', flexShrink: 0,
+            boxShadow: tid === 'vanish' && active ? '0 0 0 2px #ff2d5540, 0 0 8px #ff2d5530' : active ? '0 0 0 2px #c7d2fe' : 'none'
+        }),
+        iconBtn: (active = false) => ({
+            width: 32, height: 32, border: `1px solid ${active ? '#e0e0ff' : '#e8e8e4'}`,
+            borderRadius: 7, background: active ? '#f0f0ff' : '#ffffff',
+            cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+            color: active ? '#4f46e5' : '#71717a', transition: 'all 0.12s', flexShrink: 0
+        }),
+        sep: { width: 1, height: 28, background: '#e8e8e4', flexShrink: 0, margin: '0 2px' },
+        label: { fontSize: 11, color: '#9ca3af', userSelect: 'none', whiteSpace: 'nowrap' },
+        canvasWrap: { flex: 1, position: 'relative', overflow: 'hidden' },
+        sidebar: {
+            position: 'absolute', left: 8, top: 8, bottom: 8, width: 200,
+            background: '#ffffff', borderRadius: 12, border: '1px solid #e8e8e4',
+            padding: 12, display: 'flex', flexDirection: 'column', gap: 8,
+            overflowY: 'auto', zIndex: 10, boxShadow: '0 2px 12px rgba(0,0,0,0.06)'
+        },
+        sidebarSection: { display: 'flex', flexDirection: 'column', gap: 6 },
+        sidebarLabel: { fontSize: 10, fontWeight: 600, color: '#9ca3af', letterSpacing: '.06em', textTransform: 'uppercase' },
+        propPanel: {
+            position: 'absolute', right: 8, top: 8, width: 180, background: '#ffffff',
+            borderRadius: 12, border: '1px solid #e8e8e4', padding: 12,
+            display: 'flex', flexDirection: 'column', gap: 8, zIndex: 10,
+            boxShadow: '0 2px 12px rgba(0,0,0,0.06)'
+        },
+        bottombar: {
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            padding: '4px 12px', background: '#ffffff', borderTop: '1px solid #e8e8e4',
+            fontSize: 11, color: '#9ca3af', flexShrink: 0, userSelect: 'none'
+        },
+        kbd: {
+            display: 'inline-block', background: '#f4f4f2', border: '1px solid #ddd',
+            borderRadius: 3, padding: '0 4px', fontSize: 10, color: '#666'
+        },
+        colorDot: (c, active) => ({
+            width: 20, height: 20, borderRadius: '50%', background: c,
+            border: active ? '2.5px solid #6366f1' : '2px solid transparent',
+            cursor: 'pointer', transform: active ? 'scale(1.2)' : 'scale(1)',
+            transition: 'all 0.1s', flexShrink: 0,
+            boxShadow: '0 0 0 1px rgba(0,0,0,0.1)'
+        }),
+        floatingToolbar: {
+            position: 'absolute', left: '50%', transform: 'translateX(-50%)',
+            top: 8, background: '#ffffff', border: '1px solid #e8e8e4',
+            borderRadius: 12, padding: '6px 8px', display: 'flex', alignItems: 'center', gap: 4,
+            boxShadow: '0 2px 12px rgba(0,0,0,0.08)', zIndex: 20
+        },
+        mobileBottom: {
+            position: 'absolute', bottom: 0, left: 0, right: 0,
+            background: '#ffffff', borderTop: '1px solid #e8e8e4',
+            padding: '8px 12px', zIndex: 30
+        },
+        tag: (c = '#6366f1') => ({
+            display: 'inline-flex', alignItems: 'center', gap: 4,
+            background: `${c}15`, color: c, border: `1px solid ${c}30`,
+            borderRadius: 6, padding: '2px 8px', fontSize: 11, fontWeight: 500
+        })
+    }), [])
+
+    const mob = isMobile()
+    const tab = isTablet()
+
+    const DRAW_TOOLS = [
+        { id: 'select', icon: 'select', key: 'V', label: 'Select' },
+        { id: 'pan', icon: 'pan', key: 'M', label: 'Pan' },
+        null,
+        { id: 'pencil', icon: 'pencil', key: 'P', label: 'Pencil' },
+        { id: 'pen', icon: 'pen', key: 'B', label: 'Pen' },
+        { id: 'highlighter', icon: 'highlight', key: 'H', label: 'Highlight' },
+        { id: 'vanish', icon: 'vanish', key: 'F', label: 'Vanish Pen' },
+        { id: 'eraser', icon: 'eraser', key: 'E', label: 'Eraser' },
+        null,
+        { id: 'line', icon: 'line', key: 'L', label: 'Line' },
+        { id: 'arrow', icon: 'arrow', key: 'A', label: 'Arrow' },
+        { id: 'double-arrow', icon: 'arrow', key: null, label: '↔ Arrow' },
+        null,
+        { id: 'rect', icon: 'rect', key: 'R', label: 'Rect' },
+        { id: 'circle', icon: 'circle', key: 'C', label: 'Circle' },
+        { id: 'shape', icon: 'shape', key: 'S', label: 'Shape' },
+        null,
+        { id: 'text', icon: 'text', key: 'T', label: 'Text' },
+        { id: 'sticky', icon: 'sticky', key: 'N', label: 'Sticky' },
+        { id: 'image', icon: 'image', key: 'I', label: 'Image' },
+    ]
+
+    const MOBILE_TOOLS = [
+        { id: 'pencil', icon: 'pencil' }, { id: 'eraser', icon: 'eraser' }, { id: 'arrow', icon: 'arrow' },
+        { id: 'rect', icon: 'rect' }, { id: 'text', icon: 'text' }, { id: 'sticky', icon: 'sticky' },
+        { id: 'select', icon: 'select' }, { id: 'pan', icon: 'pan' }
+    ]
+
+    const cursorFor = (t) => {
+        if (t === 'pan') return 'grab'
+        if (t === 'text' || t === 'sticky') return 'text'
+        if (t === 'select') return 'default'
+        if (t === 'eraser') return 'cell'
+        return 'crosshair'
+    }
 
     return (
-        <div style={styles.container}>
-            {/* Toolbar */}
-            <div style={styles.toolbar}>
-                {/* Nav tools */}
-                <div style={styles.toolGroup}>
-                    {[{ id: 'select', icon: <IconSelect /> }, { id: 'pan', icon: <IconPan /> }].map(t => (
-                        <button key={t.id} style={styles.toolBtn(activeTool === t.id)} onClick={() => setActiveTool(t.id)} title={t.id}>
-                            {t.icon}
-                        </button>
-                    ))}
+        <div style={S.root}>
+            {/* ── Top bar ── */}
+            {!mob && (
+                <div style={S.topbar}>
+                    {/* Draw tools */}
+                    {DRAW_TOOLS.map((t, i) => t === null
+                        ? <div key={i} style={S.sep} />
+                        : (
+                            <button key={t.id} style={S.toolBtn(tool === t.id, t.id)} title={`${t.label}${t.key ? ' (' + t.key + ')' : ''}`}
+                                onClick={() => setTool(t.id)}>
+                                {t.id === 'vanish'
+                                    ? <span style={{ fontSize: 13, color: tool === 'vanish' ? '#ff2d55' : '#999', textShadow: tool === 'vanish' ? '0 0 6px #ff2d5580' : 'none' }}>✦</span>
+                                    : icons[t.icon]
+                                        ? <Icon d={icons[t.icon]} />
+                                        : <span style={{ fontSize: 13 }}>{t.label}</span>}
+                            </button>
+                        )
+                    )}
+                    <div style={S.sep} />
+
+                    {/* Shape sub-picker */}
+                    {tool === 'shape' && (
+                        <>
+                            {SHAPES.map(sh => (
+                                <button key={sh} style={S.toolBtn(shapeType === sh)} title={sh}
+                                    onClick={() => setShapeType(sh)}>
+                                    <span style={{ fontSize: 14 }}>{SHAPE_ICONS[sh]}</span>
+                                </button>
+                            ))}
+                            <div style={S.sep} />
+                        </>
+                    )}
+
+                    {/* Arrow sub-options */}
+                    {(tool === 'arrow' || tool === 'dashed-arrow') && (
+                        <>
+                            <select value={arrowStyle} onChange={e => setArrowStyle(e.target.value)}
+                                style={{ height: 28, borderRadius: 6, border: '1px solid #e0e0e0', fontSize: 11, padding: '0 6px', color: '#555' }}>
+                                {ARROW_STYLES.map(s => <option key={s} value={s}>{s}</option>)}
+                            </select>
+                            <select value={arrowEnd} onChange={e => setArrowEnd(e.target.value)}
+                                style={{ height: 28, borderRadius: 6, border: '1px solid #e0e0e0', fontSize: 11, padding: '0 6px', color: '#555' }}>
+                                {ARROW_ENDS.map(s => <option key={s} value={s}>{s}</option>)}
+                            </select>
+                            <div style={S.sep} />
+                        </>
+                    )}
+
+                    {/* Colors */}
+                    <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                        {COLORS.map(c => (
+                            <div key={c} style={S.colorDot(c, color === c)} onClick={() => setColor(c)}
+                                title={c} />
+                        ))}
+                        <input type="color" value={color} onChange={e => setColor(e.target.value)}
+                            style={{ width: 20, height: 20, border: 'none', borderRadius: '50%', cursor: 'pointer', padding: 0, overflow: 'hidden' }} title="Custom color" />
+                    </div>
+                    <div style={S.sep} />
+
+                    {/* Fill */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <span style={S.label}>Fill</span>
+                        <div style={{ ...S.colorDot('transparent', fill === 'none'), border: '1.5px dashed #ccc', position: 'relative' }}
+                            onClick={() => setFill('none')} title="No fill">
+                            {fill === 'none' && <span style={{ position: 'absolute', color: '#e55', fontSize: 12, top: -2, left: 2 }}>×</span>}
+                        </div>
+                        {COLORS.slice(0, 6).map(c => (
+                            <div key={c} style={S.colorDot(c, fill === c)} onClick={() => setFill(c)} />
+                        ))}
+                    </div>
+                    <div style={S.sep} />
+
+                    {/* Size */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span style={S.label}>Size</span>
+                        <input type="range" min="1" max="24" value={strokeSize}
+                            onChange={e => setStrokeSize(Number(e.target.value))}
+                            style={{ width: 64, accentColor: '#6366f1' }} />
+                        <span style={{ ...S.label, minWidth: 16 }}>{strokeSize}</span>
+                    </div>
+                    <div style={S.sep} />
+
+                    {/* Font (for text/sticky) */}
+                    {(tool === 'text' || tool === 'sticky') && (
+                        <>
+                            <select value={fontSize} onChange={e => setFontSize(Number(e.target.value))}
+                                style={{ height: 28, borderRadius: 6, border: '1px solid #e0e0e0', fontSize: 11, padding: '0 4px', color: '#555' }}>
+                                {FONT_SIZES.map(f => <option key={f} value={f}>{f}px</option>)}
+                            </select>
+                            {FONT_LABELS.map((fl, fi) => (
+                                <button key={fi} style={S.toolBtn(fontIdx === fi)} onClick={() => setFontIdx(fi)} title={fl}>
+                                    <span style={{ fontSize: 12, fontFamily: FONTS[fi] }}>{fl[0]}</span>
+                                </button>
+                            ))}
+                            <div style={S.sep} />
+                        </>
+                    )}
+
+                    {/* Bg */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <span style={S.label}>BG</span>
+                        {BG_OPTIONS.map(b => (
+                            <button key={b.id} style={{ ...S.toolBtn(bg === b.id), width: 'auto', padding: '0 6px', fontSize: 10 }}
+                                onClick={() => setBg(b.id)}>{b.label}</button>
+                        ))}
+                    </div>
+                    <div style={S.sep} />
+
+                    {/* Actions */}
+                    <button style={S.iconBtn()} onClick={undo} title="Undo (Ctrl+Z)"><Icon d={icons.undo} /></button>
+                    <button style={S.iconBtn()} onClick={redo} title="Redo (Ctrl+Y)"><Icon d={icons.redo} /></button>
+                    <button style={S.iconBtn()} onClick={deleteSelected} title="Delete selected (Del)"><Icon d={icons.trash} /></button>
+                    <button style={S.iconBtn()} onClick={duplicateSelected} title="Duplicate (Ctrl+D)"><Icon d={icons.copy} /></button>
+                    <div style={S.sep} />
+                    <button style={S.iconBtn()} onClick={zoomOut} title="Zoom out"><Icon d={icons.zoomOut} /></button>
+                    <button style={{ ...S.iconBtn(), width: 'auto', padding: '0 8px', fontSize: 11, color: '#555', cursor: 'pointer' }}
+                        onClick={resetZoom} title="Reset zoom">{Math.round(zoom * 100)}%</button>
+                    <button style={S.iconBtn()} onClick={zoomIn} title="Zoom in"><Icon d={icons.zoomIn} /></button>
+                    <button style={{ ...S.iconBtn(), width: 'auto', padding: '0 6px', fontSize: 10 }} onClick={fitToScreen} title="Fit to screen">Fit</button>
+                    <div style={S.sep} />
+                    <button style={{ ...S.iconBtn(), width: 'auto', padding: '0 8px', fontSize: 11, color: '#4f46e5', fontWeight: 600 }} onClick={exportPNG}>
+                        <Icon d={icons.download} />&nbsp;Export
+                    </button>
+                    <button style={{ ...S.iconBtn(), width: 'auto', padding: '0 8px', fontSize: 11 }} onClick={clearAll}>
+                        Clear
+                    </button>
                 </div>
-                <div style={styles.sep} />
+            )}
 
-                {/* Draw tools */}
-                <div style={styles.toolGroup}>
-                    {TOOLS.map(t => (
-                        <button key={t.id} style={styles.toolBtn(activeTool === t.id)} onClick={() => setActiveTool(t.id)} title={t.title}>
-                            {t.label || getToolIcon(t.id)}
-                        </button>
-                    ))}
-                </div>
-                <div style={styles.sep} />
-
-                {/* Colors */}
-                <div style={styles.toolGroup}>
-                    {COLORS.map(c => (
-                        <div key={c} style={styles.colorSwatch(activeColor === c, c)} onClick={() => setActiveColor(c)} />
-                    ))}
-                </div>
-                <div style={styles.sep} />
-
-                {/* Size */}
-                <input type="range" min="1" max="20" value={strokeSize} style={styles.sizeSlider}
-                    onChange={e => setStrokeSize(Number(e.target.value))} title="Stroke size" />
-                <div style={styles.sep} />
-
-                {/* Actions */}
-                <div style={styles.toolGroup}>
-                    <button style={styles.toolBtn(false)} onClick={undo} title="Undo (Ctrl+Z)"><IconUndo /></button>
-                    <button style={styles.toolBtn(false)} onClick={redo} title="Redo (Ctrl+Y)"><IconRedo /></button>
-                    <button style={styles.toolBtn(false)} onClick={clearCanvas} title="Clear">🗑️</button>
-                </div>
-                <div style={styles.sep} />
-                <button style={{ ...styles.toolBtn(false), width: 'auto', padding: '0 8px', fontSize: 12 }} onClick={exportPNG}>
-                    Export
-                </button>
-            </div>
-
-            {/* Canvas area */}
-            <div ref={wrapRef} style={styles.canvasWrap}>
+            {/* ── Canvas area ── */}
+            <div ref={wrapRef} style={S.canvasWrap}>
                 <canvas
                     ref={canvasRef}
-                    style={styles.canvas(activeTool)}
-                    onMouseDown={onDown}
-                    onMouseMove={onMove}
-                    onMouseUp={onUp}
-                    onMouseLeave={onUp}
-                    onTouchStart={e => { e.preventDefault(); onDown(e) }}
-                    onTouchMove={e => { e.preventDefault(); onMove(e) }}
-                    onTouchEnd={e => { e.preventDefault(); onUp(e) }}
+                    style={{ position: 'absolute', top: 0, left: 0, cursor: cursorFor(tool), touchAction: 'none' }}
+                    onMouseDown={onDown} onMouseMove={onMove} onMouseUp={onUp} onMouseLeave={onUp}
+                    onDoubleClick={onDblClick}
                 />
-                {textPos && (
+
+                {/* Floating text input */}
+                {textInput && (
                     <textarea
-                        ref={textRef}
+                        ref={textareaRef}
+                        defaultValue=""
                         style={{
-                            ...styles.textArea,
-                            left: textPos.left,
-                            top: textPos.top,
-                            fontSize: textFontSize,
-                            color: textColor,
+                            position: 'absolute', left: textInput.x, top: textInput.y,
+                            border: '1.5px dashed #6366f1', background: 'rgba(255,255,255,0.9)',
+                            outline: 'none', padding: '4px 8px', minWidth: 120, minHeight: 36,
+                            resize: 'none', borderRadius: 6, zIndex: 50,
+                            fontFamily: textInput.font, fontSize: textInput.fontSize,
+                            color: textInput.color, lineHeight: 1.4
                         }}
-                        rows={1}
-                        onBlur={onTextBlur}
-                        onKeyDown={e => { if (e.key === 'Escape') { if (textRef.current) textRef.current.value = ''; textRef.current?.blur() } }}
+                        rows={2}
+                        onBlur={commitText}
+                        onKeyDown={e => {
+                            if (e.key === 'Escape') { setTextInput(null); if (textareaRef.current) textareaRef.current.value = '' }
+                            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); commitText() }
+                        }}
                         onInput={e => { e.target.style.height = 'auto'; e.target.style.height = e.target.scrollHeight + 'px' }}
                     />
                 )}
+
+                {/* Floating label input */}
+                {labelMode && (
+                    <input
+                        autoFocus
+                        value={labelMode.val}
+                        onChange={e => setLabelMode(m => ({ ...m, val: e.target.value }))}
+                        style={{
+                            position: 'absolute', left: labelMode.x - 60, top: labelMode.y - 14,
+                            width: 120, border: '1.5px solid #6366f1', borderRadius: 6,
+                            background: 'rgba(255,255,255,0.95)', outline: 'none',
+                            padding: '2px 8px', fontSize: 13, fontFamily: "'DM Sans',sans-serif",
+                            textAlign: 'center', zIndex: 50
+                        }}
+                        onBlur={commitLabel}
+                        onKeyDown={e => { if (e.key === 'Enter' || e.key === 'Escape') commitLabel() }}
+                    />
+                )}
+
+                {/* Selection property panel */}
+                {selectedEl && !mob && (
+                    <div style={S.propPanel}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <span style={{ ...S.sidebarLabel, color: '#6366f1' }}>Properties</span>
+                            <button style={{ ...S.iconBtn(), width: 20, height: 20 }} onClick={() => { stateRef.current.selectedIds = new Set(); setSelectedEl(null); redraw() }}>
+                                <Icon d={icons.close} size={12} />
+                            </button>
+                        </div>
+                        <div style={S.sidebarSection}>
+                            <span style={S.sidebarLabel}>Tool</span>
+                            <div style={{ ...S.tag(), fontSize: 12 }}>{selectedEl.tool}</div>
+                        </div>
+                        <div style={S.sidebarSection}>
+                            <span style={S.sidebarLabel}>Color</span>
+                            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                                {COLORS.map(c => (
+                                    <div key={c} style={S.colorDot(c, selectedEl.color === c)}
+                                        onClick={() => {
+                                            const s = stateRef.current
+                                            const el = s.elements.find(x => s.selectedIds.has(x.id))
+                                            if (el) { el.color = c; setSelectedEl({ ...el, color: c }) }
+                                            redraw()
+                                        }} />
+                                ))}
+                            </div>
+                        </div>
+                        {selectedEl.tool === 'sticky' && (
+                            <div style={S.sidebarSection}>
+                                <span style={S.sidebarLabel}>Sticky color</span>
+                                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                                    {STICKY_COLORS.map(c => (
+                                        <div key={c} style={{ ...S.colorDot(c, selectedEl.bgColor === c), width: 18, height: 18 }}
+                                            onClick={() => {
+                                                const s = stateRef.current
+                                                const el = s.elements.find(x => s.selectedIds.has(x.id))
+                                                if (el) { el.bgColor = c; setSelectedEl({ ...el, bgColor: c }) }
+                                                redraw()
+                                            }} />
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                        <div style={S.sidebarSection}>
+                            <span style={S.sidebarLabel}>Stroke size</span>
+                            <input type="range" min="1" max="20" value={selectedEl.size || 2}
+                                style={{ accentColor: '#6366f1' }}
+                                onChange={e => {
+                                    const s = stateRef.current
+                                    const el = s.elements.find(x => s.selectedIds.has(x.id))
+                                    if (el) { el.size = Number(e.target.value); setSelectedEl({ ...el, size: Number(e.target.value) }) }
+                                    redraw()
+                                }} />
+                        </div>
+                        <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
+                            <button style={{ ...S.iconBtn(), flex: 1, width: 'auto', fontSize: 11, color: '#ef4444' }} onClick={deleteSelected}>
+                                <Icon d={icons.trash} size={13} />&nbsp;Delete
+                            </button>
+                            <button style={{ ...S.iconBtn(), flex: 1, width: 'auto', fontSize: 11 }} onClick={duplicateSelected}>
+                                <Icon d={icons.copy} size={13} />&nbsp;Copy
+                            </button>
+                        </div>
+                    </div>
+                )}
+
+                {/* Zoom controls (floating bottom-right) */}
+                <div style={{ position: 'absolute', bottom: mob ? 72 : 12, right: 12, display: 'flex', gap: 4, alignItems: 'center', zIndex: 15 }}>
+                    <button style={S.iconBtn()} onClick={zoomOut}><Icon d={icons.zoomOut} /></button>
+                    <button style={{ ...S.iconBtn(), width: 52, fontSize: 11, color: '#555' }} onClick={resetZoom}>{Math.round(zoom * 100)}%</button>
+                    <button style={S.iconBtn()} onClick={zoomIn}><Icon d={icons.zoomIn} /></button>
+                    <button style={{ ...S.iconBtn(), fontSize: 10, width: 'auto', padding: '0 6px' }} onClick={fitToScreen}>Fit</button>
+                </div>
+
+                {/* Hint bar */}
+                {!mob && (
+                    <div style={{ position: 'absolute', bottom: 12, left: 12, fontSize: 10, color: '#bbb', pointerEvents: 'none' }}>
+                        <span style={S.kbd}>Ctrl+Z</span> Undo &nbsp;
+                        <span style={S.kbd}>Del</span> Delete &nbsp;
+                        <span style={S.kbd}>Ctrl+D</span> Duplicate &nbsp;
+                        <span style={S.kbd}>Dbl-click</span> Label shape &nbsp;
+                        <span style={S.kbd}>Scroll</span> Zoom
+                    </div>
+                )}
             </div>
 
-            {/* Status bar */}
-            <div style={styles.status}>
-                <span>
-                    {['P Pencil', 'R Rect', 'C Circle', 'L Line', 'A Arrow', 'T Text', 'E Eraser', 'V Select', 'H Pan'].map(k => (
-                        <span key={k}><kbd style={styles.kbd}>{k.split(' ')[0]}</kbd>{k.split(' ')[1]}&nbsp;&nbsp;</span>
-                    ))}
-                </span>
-                <span>{Math.round(zoom * 100)}%</span>
-            </div>
+            {/* ── Mobile bottom toolbar ── */}
+            {mob && (
+                <div style={{ ...S.mobileBottom, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {/* Tab row */}
+                    <div style={{ display: 'flex', gap: 4, justifyContent: 'space-around' }}>
+                        {['draw', 'color', 'bg', 'actions'].map(tab => (
+                            <button key={tab} style={{
+                                flex: 1, height: 30, border: 'none', borderRadius: 6,
+                                background: mobileTab === tab ? '#eef2ff' : 'transparent',
+                                color: mobileTab === tab ? '#4f46e5' : '#71717a',
+                                fontSize: 10, fontWeight: 600, cursor: 'pointer', textTransform: 'uppercase', letterSpacing: '.05em'
+                            }} onClick={() => setMobileTab(tab)}>{tab}</button>
+                        ))}
+                    </div>
+                    {mobileTab === 'draw' && (
+                        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', justifyContent: 'center' }}>
+                            {MOBILE_TOOLS.map(t => (
+                                <button key={t.id} style={S.toolBtn(tool === t.id)} onClick={() => setTool(t.id)}>
+                                    <Icon d={icons[t.icon]} />
+                                </button>
+                            ))}
+                        </div>
+                    )}
+                    {mobileTab === 'color' && (
+                        <div style={{ display: 'flex', gap: 6, justifyContent: 'center', alignItems: 'center', flexWrap: 'wrap' }}>
+                            {COLORS.map(c => <div key={c} style={S.colorDot(c, color === c)} onClick={() => setColor(c)} />)}
+                            <input type="range" min="1" max="16" value={strokeSize} onChange={e => setStrokeSize(Number(e.target.value))} style={{ width: 80, accentColor: '#6366f1' }} />
+                        </div>
+                    )}
+                    {mobileTab === 'bg' && (
+                        <div style={{ display: 'flex', gap: 4, justifyContent: 'center' }}>
+                            {BG_OPTIONS.map(b => (
+                                <button key={b.id} style={{ ...S.toolBtn(bg === b.id), width: 'auto', padding: '0 8px', fontSize: 10 }} onClick={() => setBg(b.id)}>{b.label}</button>
+                            ))}
+                        </div>
+                    )}
+                    {mobileTab === 'actions' && (
+                        <div style={{ display: 'flex', gap: 4, justifyContent: 'center' }}>
+                            <button style={S.iconBtn()} onClick={undo}><Icon d={icons.undo} /></button>
+                            <button style={S.iconBtn()} onClick={redo}><Icon d={icons.redo} /></button>
+                            <button style={S.iconBtn()} onClick={deleteSelected}><Icon d={icons.trash} /></button>
+                            <button style={S.iconBtn()} onClick={zoomOut}><Icon d={icons.zoomOut} /></button>
+                            <button style={S.iconBtn()} onClick={zoomIn}><Icon d={icons.zoomIn} /></button>
+                            <button style={{ ...S.iconBtn(), width: 'auto', padding: '0 8px', fontSize: 11, color: '#4f46e5', fontWeight: 600 }} onClick={exportPNG}>
+                                Export
+                            </button>
+                            <button style={{ ...S.iconBtn(), width: 'auto', padding: '0 8px', fontSize: 11 }} onClick={clearAll}>Clear</button>
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {/* Hidden file input */}
+            <input ref={fileRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleImageUpload} />
         </div>
     )
 }
-
-export default Creatives
