@@ -1,6 +1,6 @@
 import React, { useState, useRef } from "react";
+import {API_BASE} from "../api";
 
-const API_BASE = "/v1/user";
 
 // ── tiny logo ──────────────────────────────────────────────────────────────
 const BoboBrand = () => (

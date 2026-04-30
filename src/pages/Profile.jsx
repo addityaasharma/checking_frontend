@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import API_BASE from "../api";
+import {API_BASE} from "../api";
 
 
 const Icon = ({ d, size = 16, strokeWidth = 1.8 }) => (

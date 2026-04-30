@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
-import API_BASE from "../api";
+import {API_BASE} from "../api";
 
 
 const Icon = ({ path, size = 15, color = "currentColor", strokeWidth = 2, fill = "none" }) => (
