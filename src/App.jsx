@@ -12,13 +12,14 @@ import Profile from "./pages/Profile";
 import Creatives from "./pages/Creatives";
 import PrivacyPolicy from "./pages/PrivacyPolicy";
 import Terms from "./pages/Terms";
+import {API_BASE} from "../src/api"
 
 const PrivateRoute = () => {
   const [loading, setLoading] = useState(true);
   const [isAuth, setIsAuth] = useState(false);
 
   useEffect(() => {
-    fetch("/v1/user/me", { credentials: "include" })
+    fetch(`${API_BASE}/v1/user/me`, { credentials: "include" })
       .then((res) => res.json())
       .then((data) => setIsAuth(data.status))
       .catch(() => setIsAuth(false))
@@ -74,7 +75,7 @@ const PublicRoute = () => {
   const [isAuth, setIsAuth] = useState(false);
 
   useEffect(() => {
-    fetch("/v1/user/me", { credentials: "include" })
+    fetch(`${API_BASE}/v1/user/me`, { credentials: "include" })
       .then((res) => res.json())
       .then((data) => setIsAuth(data.status))
       .catch(() => setIsAuth(false))
