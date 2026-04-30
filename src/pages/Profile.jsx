@@ -43,6 +43,8 @@ const Profile = () => {
     const [form, setForm] = useState({});
     const [saving, setSaving] = useState(false);
     const [saveMsg, setSaveMsg] = useState("");
+    // ✅ FIX 2: track local image preview URL
+    const [previewUrl, setPreviewUrl] = useState(null);
     const fileRef = useRef(null);
 
     useEffect(() => {
@@ -56,37 +58,67 @@ const Profile = () => {
             .finally(() => setLoading(false));
     }, []);
 
+    // ✅ FIX 2: generate preview as soon as a file is picked
+    const handleFileChange = (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        const url = URL.createObjectURL(file);
+        setPreviewUrl(url);
+    };
+
     const handleSave = async () => {
         setSaving(true);
+        setSaveMsg("");
+
         try {
-            const res = await fetch(API, {
+            const formData = new FormData();
+            formData.append("class", form.class || "");
+            formData.append("location", form.location || "");
+            formData.append("gender", form.gender || "");
+            formData.append("dob", form.dob || "");
+
+            if (fileRef.current?.files[0]) {
+                formData.append("profile", fileRef.current.files[0]);
+            }
+
+            const res = await fetch(`${API}/0`, {
                 method: "PUT",
                 credentials: "include",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    class: form.class,
-                    location: form.location,
-                    gender: form.gender,
-                    dob: form.dob,
-                }),
+                body: formData,
             });
+
             const d = await res.json();
+
             if (d.status) {
-                setProfile(prev => ({ ...prev, ...form }));
+                // ✅ FIX 1: merge server response into existing profile instead of replacing.
+                // This guards against the server returning a partial object that wipes
+                // fields like `streak`, causing downstream .streak.current crashes → blank page.
+                const updated = { ...profile, ...(d.data || {}) };
+                setProfile(updated);
+                setForm(updated);
+                // ✅ FIX 2: if server returned a new picture URL use it, otherwise keep preview
+                if (d.data?.profile_picture) {
+                    setPreviewUrl(null); // server URL will be used via updated profile
+                }
                 setEditing(false);
                 setSaveMsg("Saved!");
                 setTimeout(() => setSaveMsg(""), 2500);
             } else {
                 setSaveMsg(d.message || "Failed to save.");
             }
+
         } catch {
             setSaveMsg("Network error.");
         }
+
         setSaving(false);
     };
 
     const handleCancel = () => {
         setForm(profile);
+        // ✅ FIX 2: discard unsaved preview on cancel
+        setPreviewUrl(null);
+        if (fileRef.current) fileRef.current.value = "";
         setEditing(false);
     };
 
@@ -105,13 +137,19 @@ const Profile = () => {
         </div>
     );
 
+    // ✅ FIX 1: guard against profile being null after save (belt-and-suspenders)
+    if (!profile) return null;
+
     const initials = profile.username?.[0]?.toUpperCase() || "?";
-    const memberYear = profile.created_at ? new Date(profile.created_at).getFullYear() : "—";
-    const memberDate = profile.created_at ? new Date(profile.created_at).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }) : "—";
+    const memberDate = profile.created_at
+        ? new Date(profile.created_at).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })
+        : "—";
+
+    // ✅ FIX 2: previewUrl wins while editing, then fall back to server picture
+    const avatarSrc = previewUrl || profile.profile_picture;
 
     return (
         <>
-            {/* Inject font */}
             <style>{`@import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700;800;900&display=swap');
             .profile-root * { font-family: 'Nunito', sans-serif; }
             .avatar-ring { background: conic-gradient(from 0deg, #FF5500, #8B2FC9, #0088FF, #00CC44, #FF5500); }
@@ -124,9 +162,8 @@ const Profile = () => {
 
             <div className="profile-root min-h-full bg-gray-50 pb-12">
 
-                {/* ── Hero banner ── */}
+                {/* Hero banner */}
                 <div className="relative h-28 sm:h-36 bg-gradient-to-r from-violet-500 via-purple-500 to-indigo-500 overflow-hidden">
-                    {/* Back button */}
                     <button
                         onClick={() => navigate("/creatives")}
                         className="absolute top-4 left-4 flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/20 hover:bg-white/30 text-white text-xs font-bold backdrop-blur-sm transition"
@@ -136,8 +173,6 @@ const Profile = () => {
                         </svg>
                         <span>Back to Canvas</span>
                     </button>
-
-                    {/* Decorative circles */}
                     <div className="absolute -top-8 -right-8 w-40 h-40 rounded-full bg-white/10" />
                     <div className="absolute -bottom-12 left-1/3 w-56 h-56 rounded-full bg-white/5" />
                     <div className="absolute top-4 left-1/4 w-20 h-20 rounded-full bg-white/10" />
@@ -145,16 +180,21 @@ const Profile = () => {
 
                 <div className="max-w-2xl mx-auto px-4 sm:px-6">
 
-                    {/* ── Avatar + name card ── */}
+                    {/* Avatar + name card */}
                     <div className="relative bg-white rounded-2xl shadow-sm border border-gray-100 px-5 pt-4 pb-5 -mt-10 sm:-mt-12 mb-4">
                         <div className="flex items-end gap-4">
+
                             {/* Avatar */}
                             <div className="relative shrink-0 -mt-10 sm:-mt-14">
                                 <div className="avatar-ring p-[2.5px] rounded-full">
                                     <div className="bg-white p-0.5 rounded-full">
-                                        {profile.profile_picture ? (
-                                            <img src={profile.profile_picture} alt={profile.username}
-                                                className="w-16 h-16 sm:w-20 sm:h-20 rounded-full object-cover" />
+                                        {/* ✅ FIX 2: show preview or server picture */}
+                                        {avatarSrc ? (
+                                            <img
+                                                src={avatarSrc}
+                                                alt={profile.username}
+                                                className="w-16 h-16 sm:w-20 sm:h-20 rounded-full object-cover"
+                                            />
                                         ) : (
                                             <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-gradient-to-br from-violet-400 to-indigo-500 flex items-center justify-center text-2xl sm:text-3xl font-black text-white">
                                                 {initials}
@@ -163,12 +203,21 @@ const Profile = () => {
                                     </div>
                                 </div>
                                 {editing && (
-                                    <button onClick={() => fileRef.current?.click()}
-                                        className="absolute bottom-0 right-0 w-7 h-7 bg-violet-600 rounded-full flex items-center justify-center shadow-lg hover:bg-violet-700 transition">
+                                    <button
+                                        onClick={() => fileRef.current?.click()}
+                                        className="absolute bottom-0 right-0 w-7 h-7 bg-violet-600 rounded-full flex items-center justify-center shadow-lg hover:bg-violet-700 transition"
+                                    >
                                         <Icon d={icons.camera} size={13} strokeWidth={2} />
                                     </button>
                                 )}
-                                <input ref={fileRef} type="file" accept="image/*" className="hidden" />
+                                {/* ✅ FIX 2: onChange triggers preview */}
+                                <input
+                                    ref={fileRef}
+                                    type="file"
+                                    accept="image/*"
+                                    className="hidden"
+                                    onChange={handleFileChange}
+                                />
                             </div>
 
                             {/* Name + meta */}
@@ -206,7 +255,6 @@ const Profile = () => {
                             </div>
                         </div>
 
-                        {/* Save feedback */}
                         {saveMsg && (
                             <p className={`text-xs mt-2 font-semibold ${saveMsg === "Saved!" ? "text-green-500" : "text-red-400"}`}>
                                 {saveMsg}
@@ -214,12 +262,12 @@ const Profile = () => {
                         )}
                     </div>
 
-                    {/* ── Streak stats ── */}
+                    {/* Streak stats */}
                     <div className="grid grid-cols-3 gap-3 mb-4">
                         {[
-                            { label: "Current Streak", value: profile.streak.current, unit: "days", icon: icons.zap, color: "from-orange-400 to-amber-400" },
-                            { label: "Longest Streak", value: profile.streak.longest, unit: "days", icon: icons.award, color: "from-violet-400 to-purple-500" },
-                            { label: "Last Active", value: profile.streak.last_active ? new Date(profile.streak.last_active).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—", unit: "", icon: icons.clock, color: "from-teal-400 to-cyan-400" },
+                            { label: "Current Streak", value: profile.streak?.current ?? "—", unit: profile.streak?.current != null ? "days" : "", icon: icons.zap, color: "from-orange-400 to-amber-400" },
+                            { label: "Longest Streak", value: profile.streak?.longest ?? "—", unit: profile.streak?.longest != null ? "days" : "", icon: icons.award, color: "from-violet-400 to-purple-500" },
+                            { label: "Last Active", value: profile.streak?.last_active ? new Date(profile.streak.last_active).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—", unit: "", icon: icons.clock, color: "from-teal-400 to-cyan-400" },
                         ].map(({ label, value, unit, icon, color }) => (
                             <div key={label} className="stat-card bg-white rounded-2xl border border-gray-100 shadow-sm p-3 sm:p-4 flex flex-col items-center text-center gap-1">
                                 <div className={`w-8 h-8 rounded-xl bg-gradient-to-br ${color} flex items-center justify-center mb-1`}>
@@ -235,7 +283,7 @@ const Profile = () => {
                         ))}
                     </div>
 
-                    {/* ── Profile details ── */}
+                    {/* Profile details */}
                     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
                         <div className="px-5 py-3.5 border-b border-gray-50 flex items-center justify-between">
                             <h3 className="text-sm font-black text-gray-800">Profile Details</h3>
@@ -251,17 +299,12 @@ const Profile = () => {
 
                                 return (
                                     <div key={key} className="field-row flex items-center gap-3 px-5 py-3.5">
-                                        {/* Icon */}
                                         <div className="w-7 h-7 rounded-lg bg-violet-50 flex items-center justify-center shrink-0">
                                             <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="#7c3aed" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
                                                 <path d={icon} />
                                             </svg>
                                         </div>
-
-                                        {/* Label */}
                                         <span className="text-xs font-semibold text-gray-400 w-28 shrink-0">{label}</span>
-
-                                        {/* Value / Input */}
                                         <div className="flex-1 flex justify-end">
                                             {editing && editable ? (
                                                 type === "select" ? (
@@ -293,7 +336,6 @@ const Profile = () => {
                             })}
                         </div>
                     </div>
-
                 </div>
             </div>
         </>

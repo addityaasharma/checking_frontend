@@ -1,17 +1,11 @@
 import React, { useState, useRef } from "react";
+import { ScratchPadLogo } from "../component/DashboardLayout";
 
 const API_BASE = "/v1/user";
 
 const BoboBrand = () => (
     <div className="flex items-center justify-center gap-2 mb-8">
-        <div className="w-9 h-9 rounded-xl bg-violet-600 flex items-center justify-center shadow-sm">
-            <svg viewBox="0 0 20 20" className="w-5 h-5 fill-white">
-                <path d="M10 2a8 8 0 100 16A8 8 0 0010 2zm-1 5a1 1 0 112 0v1h1a1 1 0 110 2h-1v3a1 1 0 11-2 0v-3H8a1 1 0 110-2h1V7z" />
-            </svg>
-        </div>
-        <span className="text-2xl font-semibold tracking-tight text-gray-900">
-            bo<span className="text-violet-600">bo</span>
-        </span>
+        <ScratchPadLogo />
     </div>
 );
 
@@ -241,10 +235,6 @@ const Auth = () => {
                     {/* ── LOGIN FORM ── */}
                     {tab === "login" && (
                         <div className="space-y-4">
-                            <div className="mb-6">
-                                <h2 className="text-xl font-semibold text-gray-900">Welcome back</h2>
-                                <p className="text-sm text-gray-500 mt-1">Sign in to your Bobo account</p>
-                            </div>
 
                             <div>
                                 <label className="block text-xs font-medium text-gray-600 mb-1.5">Email address</label>
@@ -283,11 +273,11 @@ const Auth = () => {
                                 {loading ? "Signing in…" : "Sign in"}
                             </button>
 
-                            <div className="flex items-center gap-3 text-xs text-gray-400">
+                            {/* <div className="flex items-center gap-3 text-xs text-gray-400">
                                 <div className="flex-1 h-px bg-gray-100" />
                                 or continue with
                                 <div className="flex-1 h-px bg-gray-100" />
-                            </div>
+                            </div> */}
 
                             {/* <button
                                 onClick={handleArcLogin}
@@ -313,10 +303,9 @@ const Auth = () => {
                     {/* ── SIGNUP FORM ── */}
                     {tab === "signup" && (
                         <div className="space-y-4">
-                            <div className="mb-6">
-                                <h2 className="text-xl font-semibold text-gray-900">Create an account</h2>
-                                <p className="text-sm text-gray-500 mt-1">Start learning smarter with Bobo</p>
-                            </div>
+                            {/* <div className="mb-6">
+                                <h2 className="text-xl text-center font-semibold text-gray-900">Start Creating</h2>
+                            </div> */}
 
                             <div>
                                 <label className="block text-xs font-medium text-gray-600 mb-1.5">Full name</label>
@@ -372,7 +361,7 @@ const Auth = () => {
 
                             <div className="flex items-center gap-3 text-xs text-gray-400">
                                 <div className="flex-1 h-px bg-gray-100" />
-                                or continue with
+                                or
                                 <div className="flex-1 h-px bg-gray-100" />
                             </div>
 
@@ -385,12 +374,6 @@ const Auth = () => {
                                 Continue with Arc
                             </button> */}
 
-                            <p className="text-xs text-gray-400 text-center leading-relaxed">
-                                By signing up, you agree to our{" "}
-                                <a href="/terms" className="text-violet-600 hover:underline">Terms</a> and{" "}
-                                <a href="/privacy" className="text-violet-600 hover:underline">Privacy Policy</a>.
-                            </p>
-
                             <p className="text-sm text-gray-500 text-center pt-1">
                                 Already have an account?{" "}
                                 <span
@@ -400,13 +383,15 @@ const Auth = () => {
                                     Sign in
                                 </span>
                             </p>
+
+                            <p className="text-xs text-gray-400 text-center leading-relaxed">
+                                By signing up, you agree to our{" "}
+                                <a href="/terms" className="text-violet-600 hover:underline">Terms</a> and{" "}
+                                <a href="/privacy" className="text-violet-600 hover:underline">Privacy Policy</a>.
+                            </p>
                         </div>
                     )}
                 </div>
-
-                <p className="text-center text-xs text-gray-400 mt-6">
-                    Study smarter with AI-powered learning © {new Date().getFullYear()} Bobo
-                </p>
             </div>
         </div>
     );

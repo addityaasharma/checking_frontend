@@ -10,6 +10,8 @@ import SavedAnswers from "./pages/SavedAnswers";
 import UserStreak from "./pages/UserStreak";
 import Profile from "./pages/Profile";
 import Creatives from "./pages/Creatives";
+import PrivacyPolicy from "./pages/PrivacyPolicy";
+import Terms from "./pages/Terms";
 
 const PrivateRoute = () => {
   const [loading, setLoading] = useState(true);
@@ -129,6 +131,8 @@ const App = () => {
       <Route element={<PublicRoute />}>
         <Route path="/login" element={<Auth />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
+        <Route path="/terms" element={<Terms />} />
+        <Route path="/privacy" element={<PrivacyPolicy />} />
       </Route>
 
       <Route element={<PrivateRoute />}>

@@ -30,7 +30,7 @@ const icons = {
 const RAINBOW = ["#FF5500", "#8B2FC9", "#0088FF"];
 
 // Logo component — Nunito bold, "Scratch" dark + "Pad" rainbow chars
-const ScratchPadLogo = () => (
+export const ScratchPadLogo = () => (
     <span
         style={{
             fontFamily: "'Nunito', 'Poppins', sans-serif",
