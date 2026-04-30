@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
+import API_BASE from "../api";
 
-const API = "/v1/user/profile";
 
 const Icon = ({ d, size = 16, strokeWidth = 1.8 }) => (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -48,7 +48,7 @@ const Profile = () => {
     const fileRef = useRef(null);
 
     useEffect(() => {
-        fetch(API, { credentials: "include" })
+        fetch(`${API_BASE}/user/profile`, { credentials: "include" })
             .then(r => r.json())
             .then(d => {
                 if (d.status) { setProfile(d.data); setForm(d.data); }
@@ -81,7 +81,7 @@ const Profile = () => {
                 formData.append("profile", fileRef.current.files[0]);
             }
 
-            const res = await fetch(`${API}/0`, {
+            const res = await fetch(`${API_BASE}/user/profile`, {
                 method: "PUT",
                 credentials: "include",
                 body: formData,

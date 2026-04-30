@@ -1,7 +1,6 @@
 import React, { useState, useRef } from "react";
 import { ScratchPadLogo } from "../component/DashboardLayout";
-
-const API_BASE = "/v1/user";
+import API_BASE from "../api";
 
 const BoboBrand = () => (
     <div className="flex items-center justify-center gap-2 mb-8">

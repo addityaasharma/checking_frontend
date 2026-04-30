@@ -8,7 +8,7 @@ export default defineConfig({
   server: {
     proxy: {
       "/v1": {
-        target: "https://bobo-y3hg.onrender.com", // 🔥 your Flask backend
+        target: "https://bobo-y3hg.onrender.com",
         changeOrigin: true,
         secure: false,
       },

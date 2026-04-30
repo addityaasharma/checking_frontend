@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Outlet, useNavigate, useLocation } from "react-router-dom";
 import Todo from "./Todo";
+import API_BASE from "../api";
 
 const Icon = ({ d, size = 20 }) => (
     <svg
@@ -99,7 +100,7 @@ const DashboardLayout = () => {
     }, []);
 
     useEffect(() => {
-        fetch("/v1/user/profile", { credentials: "include" })
+        fetch(`${API_BASE}/user/profile`, { credentials: "include" })
             .then((r) => r.json())
             .then((d) => { if (d.status) setUser(d.data); })
             .catch(() => { });
@@ -116,7 +117,7 @@ const DashboardLayout = () => {
     }, [profileModalOpen]);
 
     const handleLogout = async () => {
-        await fetch("/v1/user/logout", { method: "POST", credentials: "include" });
+        await fetch(`${API_BASE}/user/logout`, { method: "POST", credentials: "include" });
         localStorage.clear();
         navigate("/login");
     };
