@@ -18,10 +18,40 @@ const Icons = {
     trash: "M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6",
     search: "M21 21l-4.35-4.35M17 11A6 6 0 105 11a6 6 0 0012 0z",
     star: "M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z",
+    edit: "M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z",
 };
 
 const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi);
 const MIN_W = 280, MAX_W = 480, MIN_H = 200, MAX_H = 580;
+
+/* ── Smooth expand/collapse for todo detail ── */
+function ExpandPanel({ open, children }) {
+    const panelRef = useRef(null);
+
+    useEffect(() => {
+        const el = panelRef.current;
+        if (!el) return;
+        if (open) {
+            el.style.maxHeight = "0px";
+            el.style.opacity = "0";
+            requestAnimationFrame(() => {
+                el.style.transition = "max-height 0.13s cubic-bezier(0.4,0,0.2,1), opacity 0.1s ease";
+                el.style.maxHeight = el.scrollHeight + "px";
+                el.style.opacity = "1";
+            });
+        } else {
+            el.style.transition = "max-height 0.1s cubic-bezier(0.4,0,0.2,1), opacity 0.08s ease";
+            el.style.maxHeight = "0px";
+            el.style.opacity = "0";
+        }
+    }, [open]);
+
+    return (
+        <div ref={panelRef} style={{ overflow: "hidden", maxHeight: 0, opacity: 0 }}>
+            {children}
+        </div>
+    );
+}
 
 export default function Todo() {
     const [todos, setTodos] = useState([]);
@@ -36,7 +66,18 @@ export default function Todo() {
     const [starred, setStarred] = useState(new Set());
     const [isSheet, setIsSheet] = useState(false);
     const [sheetOpen, setSheet] = useState(false);
-    const [, tick] = useState(0); // force re-render
+    const [editing, setEditing] = useState(null);           // id of todo being edited
+    const [editInput, setEditInput] = useState({ name: "", task: "" });
+    const [savingEdit, setSavingEdit] = useState(false);
+    const [, tick] = useState(0);
+
+    /* ── Focus the name input when form opens (replaces autoFocus) ── */
+    const nameInputRef = useRef(null);
+    useEffect(() => {
+        if (showForm && nameInputRef.current) {
+            nameInputRef.current.focus();
+        }
+    }, [showForm]);
 
     /* ── pos/size stored in refs so drag doesn't cause extra re-renders ── */
     const posRef = useRef({ x: 60, y: 60 });
@@ -46,7 +87,7 @@ export default function Todo() {
 
     const drag = useRef({ active: false, ox: 0, oy: 0 });
     const resize = useRef({ active: false, ox: 0, oy: 0, ow: 0, oh: 0 });
-    const didMove = useRef(false);  // distinguishes click vs drag on header
+    const didMove = useRef(false);
 
     /* ── responsive ── */
     useEffect(() => {
@@ -113,7 +154,7 @@ export default function Todo() {
             if (drag.current.active || resize.current.active) {
                 drag.current.active = false;
                 resize.current.active = false;
-                tick(n => n + 1); // sync React state once
+                tick(n => n + 1);
             }
         };
 
@@ -165,19 +206,43 @@ export default function Todo() {
                 body: JSON.stringify({ is_completed: !todo.is_completed }),
             });
             setTodos(p => p.map(t => t.id === todo.id ? { ...t, is_completed: !t.is_completed } : t));
-        } catch {
-            console.log("errror")
-        }
+        } catch { }
     };
 
     const deleteTodo = async (id) => {
         try {
-            await fetch(`${API}/${id}`, { method: "DELETE", credentials: "include" });
+            await fetch(`${API}/${id}`, { method: "DELETE", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify({}) });
             setTodos(p => p.filter(t => t.id !== id));
             if (expanded === id) setExpanded(null);
-        } catch {
-            console.log("errror")
-        }
+        } catch { }
+    };
+
+    const startEdit = (todo) => {
+        setEditing(todo.id);
+        setEditInput({ name: todo.name, task: todo.task });
+    };
+
+    const cancelEdit = () => {
+        setEditing(null);
+        setEditInput({ name: "", task: "" });
+    };
+
+    const updateTodo = async (id) => {
+        if (!editInput.name.trim() || !editInput.task.trim()) return;
+        setSavingEdit(true);
+        try {
+            const r = await fetch(`${API}/${id}`, {
+                method: "PUT", headers: { "Content-Type": "application/json" },
+                credentials: "include",
+                body: JSON.stringify({ name: editInput.name.trim(), task: editInput.task.trim() }),
+            });
+            const d = await r.json();
+            if (d.status) {
+                setTodos(p => p.map(t => t.id === id ? { ...t, name: editInput.name.trim(), task: editInput.task.trim() } : t));
+                cancelEdit();
+            }
+        } catch { }
+        finally { setSavingEdit(false); }
     };
 
     const toggleStar = (id) => setStarred(prev => {
@@ -200,8 +265,8 @@ export default function Todo() {
         }}>{done ? "Done" : "To Do"}</span>
     );
 
-    /* ══════════ BODY ══════════ */
-    const Body = () => (
+    /* ══════════ BODY — called as a function, not <Body />, to avoid remount ══════════ */
+    const renderBody = () => (
         <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
 
             {/* Search */}
@@ -251,7 +316,11 @@ export default function Todo() {
             {/* Add form */}
             {showForm && (
                 <div style={{ padding: "8px 12px", borderBottom: "1px solid #f0f0f0", display: "flex", flexDirection: "column", gap: 6 }}>
-                    <input autoFocus type="text" value={input.name}
+                    {/* ── ref-based focus instead of autoFocus ── */}
+                    <input
+                        ref={nameInputRef}
+                        type="text"
+                        value={input.name}
                         onChange={e => setInput(p => ({ ...p, name: e.target.value }))}
                         placeholder="Task title"
                         style={{
@@ -322,7 +391,8 @@ export default function Todo() {
                             borderRadius: 10, margin: "3px 0",
                             background: isExp ? "#faf8ff" : "#fff",
                             border: `1.5px solid ${isExp ? "#ddd6fe" : "#f3f4f6"}`,
-                            transition: "border-color .14s", overflow: "hidden",
+                            transition: "border-color .18s, background .18s",
+                            overflow: "hidden",
                         }}>
                             <div
                                 style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 10px", cursor: "pointer" }}
@@ -372,30 +442,112 @@ export default function Todo() {
                                     />
                                 </button>
 
-                                <Icon path={isExp ? Icons.chevUp : Icons.chevDown} size={12} color="#a78bfa" />
+                                {/* Animated chevron */}
+                                <div style={{
+                                    transition: "transform 0.13s cubic-bezier(0.4,0,0.2,1)",
+                                    transform: isExp ? "rotate(180deg)" : "rotate(0deg)",
+                                    display: "flex", alignItems: "center",
+                                }}>
+                                    <Icon path={Icons.chevDown} size={12} color="#a78bfa" />
+                                </div>
                             </div>
 
-                            {isExp && (
-                                <div style={{ padding: "0 10px 9px 35px" }}>
-                                    <div style={{
-                                        background: "#fff", border: "1px solid #ede9fe", borderRadius: 8,
-                                        padding: "7px 10px",
-                                    }}>
-                                        <p style={{ margin: 0, fontSize: 11, color: "#4b5563", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
-                                            {todo.task}
-                                        </p>
-                                    </div>
-                                    <button onClick={e => { e.stopPropagation(); deleteTodo(todo.id); }} style={{
-                                        marginTop: 5, display: "flex", alignItems: "center", gap: 4,
-                                        background: "none", border: "1px solid #fee2e2", borderRadius: 6,
-                                        color: "#ef4444", fontSize: 11, fontWeight: 600, cursor: "pointer",
-                                        padding: "4px 9px", fontFamily: "inherit",
-                                    }}>
-                                        <Icon path={Icons.trash} size={11} color="#ef4444" />
-                                        Delete
-                                    </button>
+                            {/* ── Smooth expand panel ── */}
+                            <ExpandPanel open={isExp}>
+                                <div style={{ padding: "0 10px 9px 10px" }}>
+                                    {editing === todo.id ? (
+                                        /* ── Edit form ── */
+                                        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                                            <input
+                                                value={editInput.name}
+                                                onChange={e => setEditInput(p => ({ ...p, name: e.target.value }))}
+                                                placeholder="Task title"
+                                                style={{
+                                                    width: "100%", boxSizing: "border-box", fontSize: 12,
+                                                    padding: "7px 10px", background: "#f9fafb",
+                                                    border: "1.5px solid #7c3aed", borderRadius: 8,
+                                                    outline: "none", fontFamily: "inherit", color: "#1f2937",
+                                                }}
+                                                onFocus={e => e.target.style.borderColor = "#7c3aed"}
+                                                onBlur={e => e.target.style.borderColor = "#ddd6fe"}
+                                            />
+                                            <textarea
+                                                rows={3}
+                                                value={editInput.task}
+                                                onChange={e => setEditInput(p => ({ ...p, task: e.target.value }))}
+                                                onKeyDown={e => e.key === "Enter" && e.ctrlKey && updateTodo(todo.id)}
+                                                placeholder="Description…"
+                                                style={{
+                                                    width: "100%", boxSizing: "border-box", fontSize: 11,
+                                                    padding: "7px 10px", background: "#f9fafb",
+                                                    border: "1.5px solid #ddd6fe", borderRadius: 8,
+                                                    outline: "none", fontFamily: "inherit", color: "#1f2937",
+                                                    resize: "vertical", lineHeight: 1.6,
+                                                }}
+                                                onFocus={e => e.target.style.borderColor = "#7c3aed"}
+                                                onBlur={e => e.target.style.borderColor = "#ddd6fe"}
+                                            />
+                                            <div style={{ display: "flex", gap: 5 }}>
+                                                <button
+                                                    onClick={e => { e.stopPropagation(); updateTodo(todo.id); }}
+                                                    disabled={savingEdit}
+                                                    style={{
+                                                        flex: 1, padding: "6px 0", background: "#7c3aed", color: "#fff",
+                                                        border: "none", borderRadius: 7, fontSize: 11, fontWeight: 700,
+                                                        cursor: "pointer", opacity: savingEdit ? .6 : 1, fontFamily: "inherit",
+                                                    }}
+                                                >{savingEdit ? "Saving…" : "Save"}</button>
+                                                <button
+                                                    onClick={e => { e.stopPropagation(); cancelEdit(); }}
+                                                    style={{
+                                                        flex: 1, padding: "6px 0", background: "#fff", color: "#6b7280",
+                                                        border: "1.5px solid #e5e7eb", borderRadius: 7, fontSize: 11,
+                                                        fontWeight: 600, cursor: "pointer", fontFamily: "inherit",
+                                                    }}
+                                                >Cancel</button>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        /* ── Read view ── */
+                                        <>
+                                            <div style={{
+                                                background: "#fff", border: "1px solid #ede9fe", borderRadius: 8,
+                                                padding: "7px 10px", marginBottom: 6,
+                                            }}>
+                                                <p style={{ margin: 0, fontSize: 11, color: "#4b5563", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
+                                                    {todo.task}
+                                                </p>
+                                            </div>
+                                            <div style={{ display: "flex", gap: 5 }}>
+                                                <button
+                                                    onClick={e => { e.stopPropagation(); startEdit(todo); }}
+                                                    style={{
+                                                        display: "flex", alignItems: "center", gap: 4,
+                                                        background: "none", border: "1px solid #ddd6fe", borderRadius: 6,
+                                                        color: "#7c3aed", fontSize: 11, fontWeight: 600, cursor: "pointer",
+                                                        padding: "4px 9px", fontFamily: "inherit",
+                                                    }}
+                                                >
+                                                    <Icon path={Icons.edit} size={11} color="#7c3aed" />
+                                                    Edit
+                                                </button>
+                                                <button
+                                                    onClick={e => { e.stopPropagation(); deleteTodo(todo.id); }}
+                                                    style={{
+                                                        display: "flex", alignItems: "center", gap: 4,
+                                                        background: "none", border: "1px solid #fee2e2", borderRadius: 6,
+                                                        color: "#ef4444", fontSize: 11, fontWeight: 600, cursor: "pointer",
+                                                        padding: "4px 9px", fontFamily: "inherit",
+                                                    }}
+                                                >
+                                                    <Icon path={Icons.trash} size={11} color="#ef4444" />
+                                                    Delete
+                                                </button>
+                                            </div>
+                                        </>
+                                    )}
                                 </div>
-                            )}
+                            </ExpandPanel>
                         </div>
                     );
                 })}
@@ -418,26 +570,8 @@ export default function Todo() {
         </div>
     );
 
-    /* ══════════ HEADER ══════════ */
-    /* Click on header body = toggle minimize. Drag = move widget. */
-    const onHeaderMouseDown = (e) => {
-        if (e.button !== 0) return;
-        // Don't start drag on interactive children
-        if (e.target.closest("button")) return;
-        e.preventDefault();
-        startDrag(e.clientX, e.clientY);
-    };
-    const onHeaderMouseUp = (e) => {
-        if (e.target.closest("button")) return;
-        if (!didMove.current) setMin(m => !m);
-    };
-    const onHeaderTouchStart = (e) => {
-        if (e.target.closest("button")) return;
-        const t = e.touches[0];
-        startDrag(t.clientX, t.clientY);
-    };
-
-    const Header = ({ draggable }) => (
+    /* ══════════ HEADER — also called as a function ══════════ */
+    const renderHeader = ({ draggable }) => (
         <div
             onMouseDown={draggable ? onHeaderMouseDown : undefined}
             onMouseUp={draggable ? onHeaderMouseUp : undefined}
@@ -451,7 +585,6 @@ export default function Todo() {
                 flexShrink: 0, userSelect: "none",
             }}
         >
-            {/* Left: icon + title + count */}
             <div style={{ display: "flex", alignItems: "center", gap: 7, pointerEvents: "none" }}>
                 <div style={{
                     width: 26, height: 26, borderRadius: 7, background: "#7c3aed",
@@ -472,7 +605,6 @@ export default function Todo() {
                 }}>{pending}</span>
             </div>
 
-            {/* Right: only + button (no minimize icon) */}
             {!isSheet ? (
                 <button
                     onClick={() => { setShowForm(f => !f); if (minimized) setMin(false); }}
@@ -498,6 +630,23 @@ export default function Todo() {
             )}
         </div>
     );
+
+    /* ── Header event handlers (must be defined before renderHeader is called) ── */
+    const onHeaderMouseDown = (e) => {
+        if (e.button !== 0) return;
+        if (e.target.closest("button")) return;
+        e.preventDefault();
+        startDrag(e.clientX, e.clientY);
+    };
+    const onHeaderMouseUp = (e) => {
+        if (e.target.closest("button")) return;
+        if (!didMove.current) setMin(m => !m);
+    };
+    const onHeaderTouchStart = (e) => {
+        if (e.target.closest("button")) return;
+        const t = e.touches[0];
+        startDrag(t.clientX, t.clientY);
+    };
 
     /* ══════════ MOBILE SHEET ══════════ */
     if (isSheet) return (
@@ -537,20 +686,26 @@ export default function Todo() {
                 <div style={{ display: "flex", justifyContent: "center", padding: "10px 0 3px" }}>
                     <div style={{ width: 34, height: 3.5, background: "#e5e7eb", borderRadius: 4 }} />
                 </div>
-                <Header draggable={false} />
-                <Body />
+                {renderHeader({ draggable: false })}
+                {renderBody()}
             </div>
         </>
     );
 
     /* ══════════ DESKTOP WIDGET ══════════ */
+    // Use a fixed pixel height for minimized so CSS transition works
+    // (CSS can't transition to/from "auto")
+    const HEADER_H = 44;
+    const targetH = minimized ? HEADER_H : sizeRef.current.h;
+    const targetW = minimized ? 230 : sizeRef.current.w;
+
     return (
         <div ref={boxRef} style={{
             position: "fixed",
             left: posRef.current.x,
             top: posRef.current.y,
-            width: minimized ? 230 : sizeRef.current.w,
-            height: minimized ? "auto" : sizeRef.current.h,
+            width: targetW,
+            height: targetH,
             zIndex: 9999,
             userSelect: "none",
             display: "flex", flexDirection: "column",
@@ -559,29 +714,43 @@ export default function Todo() {
             borderRadius: 14,
             boxShadow: "0 6px 28px rgba(124,58,237,.09), 0 1.5px 5px rgba(0,0,0,.05)",
             overflow: "hidden",
+            // Animate height/width on minimize toggle; skip during drag/resize
+            transition: resize.current.active || drag.current.active
+                ? "none"
+                : "height 0.26s cubic-bezier(0.4,0,0.2,1), width 0.22s cubic-bezier(0.4,0,0.2,1)",
         }}>
-            <Header draggable />
+            {renderHeader({ draggable: true })}
+
+            {/* Body always stays in DOM — container height clips it during minimize */}
+            <div style={{
+                display: "flex", flexDirection: "column", flex: 1, minHeight: 0,
+                opacity: minimized ? 0 : 1,
+                transition: minimized
+                    ? "opacity 0.1s ease"          // fade out fast
+                    : "opacity 0.18s ease 0.1s",   // fade in after box opens
+                pointerEvents: minimized ? "none" : "auto",
+            }}>
+                {renderBody()}
+            </div>
+
+            {/* Resize handle */}
             {!minimized && (
-                <>
-                    <Body />
-                    {/* Resize handle */}
-                    <div
-                        onMouseDown={e => { e.preventDefault(); e.stopPropagation(); startResize(e.clientX, e.clientY); }}
-                        onTouchStart={e => { e.stopPropagation(); const t = e.touches[0]; startResize(t.clientX, t.clientY); }}
-                        style={{
-                            position: "absolute", right: 0, bottom: 0,
-                            width: 18, height: 18, cursor: "se-resize",
-                            display: "flex", alignItems: "flex-end", justifyContent: "flex-end",
-                            padding: 4,
-                        }}
-                    >
-                        <svg width={9} height={9} viewBox="0 0 9 9">
-                            <circle cx={7.5} cy={7.5} r={1.1} fill="#c4b5fd" />
-                            <circle cx={4.5} cy={7.5} r={1.1} fill="#c4b5fd" />
-                            <circle cx={7.5} cy={4.5} r={1.1} fill="#c4b5fd" />
-                        </svg>
-                    </div>
-                </>
+                <div
+                    onMouseDown={e => { e.preventDefault(); e.stopPropagation(); startResize(e.clientX, e.clientY); }}
+                    onTouchStart={e => { e.stopPropagation(); const t = e.touches[0]; startResize(t.clientX, t.clientY); }}
+                    style={{
+                        position: "absolute", right: 0, bottom: 0,
+                        width: 18, height: 18, cursor: "se-resize",
+                        display: "flex", alignItems: "flex-end", justifyContent: "flex-end",
+                        padding: 4,
+                    }}
+                >
+                    <svg width={9} height={9} viewBox="0 0 9 9">
+                        <circle cx={7.5} cy={7.5} r={1.1} fill="#c4b5fd" />
+                        <circle cx={4.5} cy={7.5} r={1.1} fill="#c4b5fd" />
+                        <circle cx={7.5} cy={4.5} r={1.1} fill="#c4b5fd" />
+                    </svg>
+                </div>
             )}
         </div>
     );

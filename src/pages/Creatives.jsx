@@ -25,7 +25,6 @@ const VANISH_FADE = 100        // ms fade-out
 const isMobile = () => window.innerWidth < 640
 const isTablet = () => window.innerWidth < 1024
 
-/* ─── Shape path helpers ─── */
 function shapePath(type, x, y, w, h) {
     switch (type) {
         case 'rect': return null // use rect element
@@ -64,7 +63,6 @@ function shapePath(type, x, y, w, h) {
     }
 }
 
-/* ─── Canvas drawing engine ─── */
 function drawElement(ctx, el, selected, panX, panY, zoom) {
     ctx.save()
     ctx.translate(panX, panY)
@@ -402,6 +400,38 @@ export default function Sketchpad() {
 
     const newId = () => { stateRef.current.idCounter++; return stateRef.current.idCounter }
 
+    const STORAGE_KEY = 'sketchpad_elements'
+    const saveToStorage = useCallback(() => {
+        try {
+            const s = stateRef.current
+            const serializable = s.elements.filter(el => el.tool !== 'image').map(el => {
+                const { img, ...rest } = el
+                return rest
+            })
+            localStorage.setItem(STORAGE_KEY, JSON.stringify({
+                elements: serializable,
+                idCounter: s.idCounter,
+            }))
+        } catch { }
+    }, [])
+
+    const loadFromStorage = useCallback(() => {
+        try {
+            const raw = localStorage.getItem(STORAGE_KEY)
+            if (!raw) return
+            const { elements, idCounter } = JSON.parse(raw)
+            const s = stateRef.current
+            s.elements = elements || []
+            s.idCounter = idCounter || 0
+        } catch { }
+    }, [])
+
+    // Load on mount
+    useEffect(() => {
+        loadFromStorage()
+        redraw()
+    }, []) // eslint-disable-line
+
     /* ─── Canvas background ─── */
     const drawBackground = useCallback((ctx, w, h, bgStyle, panX, panY, z) => {
         if (bgStyle === '#1a1a2e') {
@@ -450,7 +480,8 @@ export default function Sketchpad() {
             drawElement(ctx, el, s.selectedIds.has(el.id), s.panOffset.x, s.panOffset.y, s.zoom)
         })
         if (s.current) drawElement(ctx, s.current, false, s.panOffset.x, s.panOffset.y, s.zoom)
-    }, [bg, drawBackground])
+        saveToStorage()
+    }, [bg, drawBackground, saveToStorage])
 
     const resize = useCallback(() => {
         const canvas = canvasRef.current
@@ -468,6 +499,20 @@ export default function Sketchpad() {
         fonts.href = 'https://fonts.googleapis.com/css2?family=Kalam:wght@400;700&family=Space+Mono:wght@400;700&family=DM+Sans:wght@400;500;700&display=swap'
         document.head.appendChild(fonts)
         return () => { try { document.head.removeChild(fonts) } catch { } }
+    }, [])
+
+    useEffect(() => {
+        const style = document.createElement('style')
+        style.id = 'sketchpad-scrollbar'
+        style.textContent = `
+            .sketchpad-scroll::-webkit-scrollbar { width: 4px; height: 4px; }
+            .sketchpad-scroll::-webkit-scrollbar-track { background: transparent; }
+            .sketchpad-scroll::-webkit-scrollbar-thumb { background: #d1d1ce; border-radius: 999px; }
+            .sketchpad-scroll::-webkit-scrollbar-thumb:hover { background: #a1a19e; }
+            .sketchpad-scroll { scrollbar-width: thin; scrollbar-color: #d1d1ce transparent; }
+        `
+        document.head.appendChild(style)
+        return () => { try { document.head.removeChild(style) } catch { } }
     }, [])
 
     useEffect(() => {
@@ -1050,7 +1095,7 @@ export default function Sketchpad() {
         <div style={S.root}>
             {/* ── Top bar ── */}
             {!mob && (
-                <div style={S.topbar}>
+                <div style={S.topbar} className="sketchpad-scroll">
                     {/* Draw tools */}
                     {DRAW_TOOLS.map((t, i) => t === null
                         ? <div key={i} style={S.sep} />
@@ -1228,7 +1273,7 @@ export default function Sketchpad() {
 
                 {/* Selection property panel */}
                 {selectedEl && !mob && (
-                    <div style={S.propPanel}>
+                    <div style={S.propPanel} className="sketchpad-scroll">
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                             <span style={{ ...S.sidebarLabel, color: '#6366f1' }}>Properties</span>
                             <button style={{ ...S.iconBtn(), width: 20, height: 20 }} onClick={() => { stateRef.current.selectedIds = new Set(); setSelectedEl(null); redraw() }}>

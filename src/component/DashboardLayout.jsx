@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Outlet, useNavigate, useLocation } from "react-router-dom";
 import Todo from "./Todo";
 
@@ -18,197 +18,183 @@ const Icon = ({ d, size = 20 }) => (
 );
 
 const icons = {
-    explainer: "M12 2a10 10 0 100 20A10 10 0 0012 2zm0 6v4m0 4h.01",
-    subjects: "M4 6h16M4 10h16M4 14h10",
-    timetable:
-        "M8 2v4M16 2v4M3 10h18M5 4h14a2 2 0 012 2v14a2 2 0 01-2 2H5a2 2 0 01-2-2V6a2 2 0 012-2z",
-    saved: "M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z",
-    streak: "M13 2L3 14h9l-1 8 10-12h-9l1-8z",
-    // ✅ Fix 2: dedicated pencil icon for Rough Work
-    roughWork: "M12 20h9M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z",
     logout:
         "M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1",
-    lock: "M6 10V8a6 6 0 1112 0v2M6 10h12v10H6z",
+    lock: "M12 17v-2m0 0a2 2 0 100-4 2 2 0 000 4zM6 10V8a6 6 0 1112 0v2M5 10h14a1 1 0 011 1v9a1 1 0 01-1 1H5a1 1 0 01-1-1v-9a1 1 0 011-1z",
+    user: "M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2M12 3a4 4 0 100 8 4 4 0 000-8z",
+    newFile: "M12 5v14M5 12h14",
+    share: "M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8M16 6l-4-4-4 4M12 2v13",
 };
 
-const navItems = [
-    { label: "ScratchPad", path: "/creatives", icon: icons.roughWork },
-    { label: "Concept Explainer", path: "/", icon: icons.explainer },
-    { label: "Subjects", path: "/subjects", icon: icons.subjects },
-    { label: "Timetable", path: "/timetable", icon: icons.timetable },
-    { label: "Saved Answers", path: "/saved", icon: icons.saved },
-    { label: "My Streak", path: "/streak", icon: icons.streak },
-];
+// Rainbow colors for "Pad" part of the logo
+const RAINBOW = ["#FF5500", "#8B2FC9", "#0088FF"];
+
+// Logo component — Nunito bold, "Scratch" dark + "Pad" rainbow chars
+const ScratchPadLogo = () => (
+    <span
+        style={{
+            fontFamily: "'Nunito', 'Poppins', sans-serif",
+            fontWeight: 900,
+            fontSize: "1.18rem",
+            letterSpacing: "-0.02em",
+            lineHeight: 1,
+        }}
+    >
+        <span style={{ color: "#1a1a2e" }}>Scratch</span>
+        {"Pad".split("").map((char, i) => (
+            <span key={i} style={{ color: RAINBOW[i] }}>{char}</span>
+        ))}
+    </span>
+);
+
+// Locked button — shows "Coming soon!" tooltip on click
+const LockedButton = ({ icon, label }) => {
+    const [show, setShow] = useState(false);
+    const timerRef = useRef(null);
+
+    const handleClick = () => {
+        setShow(true);
+        clearTimeout(timerRef.current);
+        timerRef.current = setTimeout(() => setShow(false), 2000);
+    };
+
+    return (
+        <div className="relative">
+            <button
+                onClick={handleClick}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-gray-400 border border-gray-200 hover:border-gray-300 hover:bg-gray-50 transition select-none cursor-pointer"
+            >
+                <Icon d={icon} size={13} />
+                <span className="hidden sm:inline">{label}</span>
+                <svg width={10} height={10} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" className="opacity-50">
+                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                </svg>
+            </button>
+            {show && (
+                <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 z-50 pointer-events-none">
+                    <div className="bg-gray-900 text-white text-[11px] font-medium px-2.5 py-1.5 rounded-lg whitespace-nowrap shadow-lg flex items-center gap-1">
+                        🚀 Coming soon!
+                    </div>
+                    <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-gray-900 rotate-45 rounded-sm" />
+                </div>
+            )}
+        </div>
+    );
+};
 
 const DashboardLayout = () => {
     const navigate = useNavigate();
-    const location = useLocation();
 
     const [user, setUser] = useState(null);
-    const [sidebarOpen, setSidebarOpen] = useState(true);
+    const [profileModalOpen, setProfileModalOpen] = useState(false);
+    const profileRef = useRef(null);
+
+    // Inject Nunito font
+    useEffect(() => {
+        const link = document.createElement("link");
+        link.rel = "stylesheet";
+        link.href = "https://fonts.googleapis.com/css2?family=Nunito:wght@800;900&display=swap";
+        document.head.appendChild(link);
+        return () => { try { document.head.removeChild(link); } catch { } };
+    }, []);
 
     useEffect(() => {
-        fetch("/v1/user/me", { credentials: "include" })
+        fetch("/v1/user/profile", { credentials: "include" })
             .then((r) => r.json())
-            .then((d) => {
-                if (d.status) setUser(d.user);
-            })
+            .then((d) => { if (d.status) setUser(d.data); })
             .catch(() => { });
     }, []);
 
+    useEffect(() => {
+        const handleClick = (e) => {
+            if (profileRef.current && !profileRef.current.contains(e.target)) {
+                setProfileModalOpen(false);
+            }
+        };
+        if (profileModalOpen) document.addEventListener("mousedown", handleClick);
+        return () => document.removeEventListener("mousedown", handleClick);
+    }, [profileModalOpen]);
+
     const handleLogout = async () => {
-        await fetch("/v1/user/logout", {
-            method: "POST",
-            credentials: "include",
-        });
+        await fetch("/v1/user/logout", { method: "POST", credentials: "include" });
         localStorage.clear();
         navigate("/login");
     };
 
-    const currentLabel =
-        navItems.find((n) => n.path === location.pathname)?.label ||
-        "Dashboard";
-
     return (
         <div className="flex h-screen bg-gray-50 overflow-hidden">
-            {/* ── Sidebar ── */}
-            <aside
-                className={`${sidebarOpen ? "w-60" : "w-16"
-                    } shrink-0 bg-white border-r border-gray-100 flex flex-col transition-all duration-200`}
-            >
-                {/* Logo — ✅ Fix 1: py-4.5 → py-[18px] */}
-                <div className="flex items-center gap-2.5 px-4 py-[18px] border-b border-gray-100">
-                    <div className="w-8 h-8 rounded-lg bg-violet-600 flex items-center justify-center shrink-0">
-                        <svg viewBox="0 0 20 20" className="w-4 h-4 fill-white">
-                            <path d="M10 2a8 8 0 100 16A8 8 0 0010 2zm-1 5a1 1 0 112 0v1h1a1 1 0 110 2h-1v3a1 1 0 11-2 0v-3H8a1 1 0 110-2h1V7z" />
-                        </svg>
-                    </div>
-                    {sidebarOpen && (
-                        <span className="text-lg font-semibold text-gray-900">
-                            bo<span className="text-violet-600">bo</span>
-                        </span>
-                    )}
-                </div>
-
-                {/* Nav */}
-                <nav className="flex-1 px-2 py-4 space-y-1 overflow-y-auto">
-                    {navItems.map(({ label, path, icon }) => {
-                        const active = location.pathname === path;
-                        const isLocked = label !== "ScratchPad";
-
-                        return (
-                            <div key={path} className="relative group">
-                                <button
-                                    onClick={() => !isLocked && navigate(path)}
-                                    className={`w-full flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors
-                        ${isLocked
-                                            ? "pointer-events-none text-gray-300 select-none"
-                                            : active
-                                                ? "bg-violet-50 text-violet-700"
-                                                : "text-gray-500 hover:bg-gray-50 hover:text-gray-800"
-                                        }`}
-                                >
-                                    <div className="flex items-center gap-3">
-                                        <span className="shrink-0">
-                                            <Icon d={icon} size={18} />
-                                        </span>
-                                        {sidebarOpen && <span>{label}</span>}
-                                    </div>
-
-                                    {isLocked && sidebarOpen && (
-                                        <span className="text-[9px] font-bold tracking-widest text-gray-400/80 bg-gray-100 px-1.5 py-0.5 rounded-md">
-                                            SOON
-                                        </span>
-                                    )}
-                                </button>
-                            </div>
-                        );
-                    })}
-                </nav>
-
-                {/* User + Logout */}
-                <div className="px-2 pb-4 border-t border-gray-100 pt-3 space-y-1">
-                    {sidebarOpen && (
-                        <div className="flex items-center gap-2.5 px-3 py-2 mb-1">
-                            <div className="w-7 h-7 rounded-full bg-violet-100 flex items-center justify-center text-xs font-semibold text-violet-700 shrink-0">
-                                {user?.username?.[0]?.toUpperCase() || "U"}
-                            </div>
-                            <div className="overflow-hidden">
-                                <p className="text-xs font-medium text-gray-800 truncate">
-                                    {user?.username || "Loading..."}
-                                </p>
-                                <p className="text-xs text-gray-400 truncate">
-                                    {user?.email || ""}
-                                </p>
-                            </div>
-                        </div>
-                    )}
-
-                    <button
-                        onClick={handleLogout}
-                        className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-red-500 hover:bg-red-50 transition"
-                    >
-                        <span className="shrink-0">
-                            <Icon d={icons.logout} size={18} />
-                        </span>
-                        {sidebarOpen && <span>Logout</span>}
-                    </button>
-                </div>
-            </aside>
-
-            {/* ── Main ── */}
             <main className="flex-1 flex flex-col overflow-hidden">
                 {/* Topbar */}
-                <header className="bg-white border-b border-gray-100 px-6 py-3.5 flex items-center gap-4">
-                    <button
-                        onClick={() => setSidebarOpen((o) => !o)}
-                        className="text-gray-400 hover:text-gray-700 transition"
-                    >
-                        <Icon d="M4 6h16M4 12h16M4 18h16" size={20} />
-                    </button>
+                <header className="bg-white border-b border-gray-100 px-5 py-2.5 flex items-center">
 
-                    <h1 className="text-sm font-medium text-gray-700">
-                        {currentLabel}
-                    </h1>
+                    {/* Left — Logo */}
+                    <div className="shrink-0">
+                        <ScratchPadLogo />
+                    </div>
 
-                    {/* Profile */}
-                    <div className="ml-auto flex items-center gap-2">
+                    {/* Center — locked action buttons */}
+                    <div className="flex-1 flex items-center justify-center gap-2">
+                        <LockedButton icon={icons.newFile} label="New" />
+                        <LockedButton icon={icons.share} label="Share" />
+                    </div>
+
+                    {/* Right — Profile */}
+                    <div className="shrink-0 relative" ref={profileRef}>
                         <button
-                            onClick={() => navigate("/profile")}
-                            className="flex items-center gap-2.5 px-3 py-1.5 rounded-xl hover:bg-gray-50 transition"
+                            onClick={() => setProfileModalOpen((o) => !o)}
+                            className="flex items-center gap-2 pl-1 pr-2.5 py-1 rounded-2xl border border-gray-100 hover:border-gray-200 hover:bg-gray-50 transition-all duration-150 shadow-sm"
                         >
-                            <div className="w-7 h-7 rounded-full bg-violet-100 flex items-center justify-center text-xs font-semibold text-violet-700 shrink-0">
-                                {user?.username?.[0]?.toUpperCase() || "U"}
+                            {/* Avatar */}
+                            <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-violet-400 to-violet-600 flex items-center justify-center text-xs font-bold text-white shrink-0 shadow-sm">
+                                {user?.username?.[0]?.toUpperCase() || "?"}
                             </div>
-                            <div className="text-left hidden sm:block">
-                                <p className="text-xs font-medium text-gray-800 leading-none">
-                                    {user?.username || "Loading..."}
-                                </p>
-                                <p className="text-xs text-gray-400 leading-none mt-0.5">
-                                    {user?.email || ""}
-                                </p>
-                            </div>
-                        </button>
-
-                        <button
-                            onClick={() => navigate("/profile")}
-                            className="w-8 h-8 flex items-center justify-center rounded-xl text-gray-400 hover:bg-violet-50 hover:text-violet-600 transition"
-                            title="View profile"
-                        >
+                            {/* Name only — no email, no loading */}
+                            {user?.username && (
+                                <span className="hidden sm:block text-xs font-semibold text-gray-700 max-w-[80px] truncate">
+                                    {user.username}
+                                </span>
+                            )}
                             <svg
-                                width={18}
-                                height={18}
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth={1.8}
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
+                                width={12} height={12} viewBox="0 0 24 24" fill="none"
+                                stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"
+                                className={`text-gray-400 transition-transform duration-200 ${profileModalOpen ? "rotate-180" : ""}`}
                             >
-                                <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2" />
-                                <circle cx="12" cy="7" r="4" />
+                                <path d="M6 9l6 6 6-6" />
                             </svg>
                         </button>
+
+                        {/* Dropdown */}
+                        {profileModalOpen && (
+                            <div className="absolute right-0 top-full mt-2 w-52 bg-white rounded-2xl shadow-lg border border-gray-100 py-2 z-50">
+                                <div className="flex items-center gap-2.5 px-4 py-3 border-b border-gray-100">
+                                    <div className="w-9 h-9 rounded-full bg-violet-100 flex items-center justify-center text-sm font-bold text-violet-700 shrink-0">
+                                        {user?.username?.[0]?.toUpperCase() || "U"}
+                                    </div>
+                                    <div className="overflow-hidden">
+                                        <p className="text-xs font-semibold text-gray-800 truncate">
+                                            {user?.username || "Loading..."}
+                                        </p>
+                                        <p className="text-[11px] text-gray-400 truncate">
+                                            {user?.email || ""}
+                                        </p>
+                                    </div>
+                                </div>
+                                <button
+                                    onClick={() => { setProfileModalOpen(false); navigate("/profile"); }}
+                                    className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-600 hover:bg-gray-50 hover:text-gray-900 transition"
+                                >
+                                    <Icon d={icons.user} size={16} />
+                                    <span>View Profile</span>
+                                </button>
+                                <button
+                                    onClick={handleLogout}
+                                    className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-red-500 hover:bg-red-50 transition"
+                                >
+                                    <Icon d={icons.logout} size={16} />
+                                    <span>Logout</span>
+                                </button>
+                            </div>
+                        )}
                     </div>
                 </header>
 
