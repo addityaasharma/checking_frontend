@@ -1,6 +1,5 @@
 import React, { useEffect, useRef, useCallback, useState, useMemo } from 'react'
 
-/* ─── Constants ─── */
 const COLORS = ['#1a1a2e', '#e63946', '#2a9d8f', '#e9c46a', '#f4a261', '#457b9d', '#6a4c93', '#06d6a0', '#ffffff']
 const FONT_SIZES = [12, 16, 20, 28, 36, 48]
 const FONTS = ["'Kalam', cursive", "'Space Mono', monospace", "'DM Sans', sans-serif"]
@@ -23,7 +22,6 @@ const VANISH_DURATION = 300
 const VANISH_FADE = 100
 
 const isMobile = () => window.innerWidth < 640
-const isTablet = () => window.innerWidth < 1024
 
 function shapePath(type, x, y, w, h) {
     switch (type) {
@@ -288,7 +286,31 @@ function hitTest(el, px, py) {
     return px >= b.x - 10 && px <= b.x + b.w + 10 && py >= b.y - 10 && py <= b.y + b.h + 10
 }
 
-/* ─── Icon components ─── */
+// Check if an element's bounds are fully or partially inside a marquee rect
+function marqueeHitTest(el, mx, my, mw, mh) {
+    const b = getElementBounds(el)
+    const rx1 = Math.min(mx, mx + mw), ry1 = Math.min(my, my + mh)
+    const rx2 = Math.max(mx, mx + mw), ry2 = Math.max(my, my + mh)
+    // Intersect — element overlaps with selection rect
+    return !(b.x + b.w < rx1 || b.x > rx2 || b.y + b.h < ry1 || b.y > ry2)
+}
+
+// Draw the marching-ants marquee selection rectangle
+function drawMarquee(ctx, sx, sy, sw, sh, panX, panY, zoom) {
+    ctx.save()
+    ctx.translate(panX, panY)
+    ctx.scale(zoom, zoom)
+    ctx.strokeStyle = '#6366f1'
+    ctx.lineWidth = 1.5 / zoom
+    ctx.setLineDash([6 / zoom, 3 / zoom])
+    ctx.globalAlpha = 0.85
+    ctx.strokeRect(sx, sy, sw, sh)
+    ctx.fillStyle = 'rgba(99,102,241,0.06)'
+    ctx.fillRect(sx, sy, sw, sh)
+    ctx.setLineDash([])
+    ctx.restore()
+}
+
 const Icon = ({ d, size = 16 }) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d={d} /></svg>
 
 const icons = {
@@ -313,19 +335,14 @@ const icons = {
     zoomIn: 'M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM21 21l-4.35-4.35M11 8v6M8 11h6',
     zoomOut: 'M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM21 21l-4.35-4.35M8 11h6',
     grid: 'M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z',
-    layers: 'M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5',
     lock: 'M19 11H5a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7a2 2 0 0 0-2-2zM7 11V7a5 5 0 0 1 10 0v4',
     copy: 'M20 9H11a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2v-9a2 2 0 0 0-2-2zM5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1',
     close: 'M18 6L6 18M6 6l12 12',
     menu: 'M3 12h18M3 6h18M3 18h18',
     frame: 'M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3',
-    table: 'M3 3h18v18H3zM3 9h18M3 15h18M9 3v18M15 3v18',
-    code: 'M16 18l6-6-6-6M8 6l-6 6 6 6',
-    link: 'M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71',
     vanish: 'M3 12c0-1 .5-2 1.5-2.5S7 9 8 10s1 3 2 4 2.5 1.5 4 1c1.5-.5 2.5-2 2-3.5S14 9 13 8.5',
 }
 
-/* ─── Main Component ─── */
 export default function Sketchpad() {
     const canvasRef = useRef(null)
     const wrapRef = useRef(null)
@@ -345,6 +362,9 @@ export default function Sketchpad() {
         dragEls: null,
         resizeHandle: null,
         idCounter: 0,
+        // Marquee selection state
+        marquee: null, // { x, y, w, h } in world coords
+        isMarquee: false,
     })
 
     const [tool, setTool] = useState('pencil')
@@ -360,14 +380,10 @@ export default function Sketchpad() {
     const [arrowEnd, setArrowEnd] = useState('arrow')
     const [textInput, setTextInput] = useState(null)
     const [stickyColor, setStickyColor] = useState(STICKY_COLORS[0])
-    const [showPanel, setShowPanel] = useState(!isMobile())
-    const [showShapePanel, setShowShapePanel] = useState(false)
-    const [showColorPanel, setShowColorPanel] = useState(false)
-    const [showBgPanel, setShowBgPanel] = useState(false)
     const [mobileTab, setMobileTab] = useState('draw')
     const [labelMode, setLabelMode] = useState(null)
     const [selectedEl, setSelectedEl] = useState(null)
-    // ── NEW: tracks pan/zoom changes to reposition the inline toolbar ──
+    const [selectionCount, setSelectionCount] = useState(0)
     const [viewVersion, setViewVersion] = useState(0)
 
     const toolRef = useRef('pencil')
@@ -404,10 +420,7 @@ export default function Sketchpad() {
                 const { img, ...rest } = el
                 return rest
             })
-            localStorage.setItem(STORAGE_KEY, JSON.stringify({
-                elements: serializable,
-                idCounter: s.idCounter,
-            }))
+            localStorage.setItem(STORAGE_KEY, JSON.stringify({ elements: serializable, idCounter: s.idCounter }))
         } catch { }
     }, [])
 
@@ -422,10 +435,7 @@ export default function Sketchpad() {
         } catch { }
     }, [])
 
-    useEffect(() => {
-        loadFromStorage()
-        redraw()
-    }, []) // eslint-disable-line
+    useEffect(() => { loadFromStorage(); redraw() }, []) // eslint-disable-line
 
     const drawBackground = useCallback((ctx, w, h, bgStyle, panX, panY, z) => {
         if (bgStyle === '#1a1a2e') {
@@ -473,6 +483,10 @@ export default function Sketchpad() {
             drawElement(ctx, el, s.selectedIds.has(el.id), s.panOffset.x, s.panOffset.y, s.zoom)
         })
         if (s.current) drawElement(ctx, s.current, false, s.panOffset.x, s.panOffset.y, s.zoom)
+        // Draw marquee selection rectangle if active
+        if (s.marquee && s.isMarquee) {
+            drawMarquee(ctx, s.marquee.x, s.marquee.y, s.marquee.w, s.marquee.h, s.panOffset.x, s.panOffset.y, s.zoom)
+        }
         saveToStorage()
     }, [bg, drawBackground, saveToStorage])
 
@@ -541,9 +555,8 @@ export default function Sketchpad() {
         vanishStrokesRef.current.forEach(vs => {
             if (!vs.createdAt) { vs._alpha = 1; return }
             const age = now - vs.createdAt
-            if (age < VANISH_DURATION) {
-                vs._alpha = 1
-            } else {
+            if (age < VANISH_DURATION) { vs._alpha = 1 }
+            else {
                 const fade = age - VANISH_DURATION
                 vs._alpha = Math.max(0, 1 - fade / VANISH_FADE)
             }
@@ -583,6 +596,7 @@ export default function Sketchpad() {
         }
 
         if (t === 'select') {
+            // Check resize handles first
             if (s.selectedIds.size === 1) {
                 const selEl = s.elements.find(el => s.selectedIds.has(el.id))
                 if (selEl) {
@@ -598,11 +612,15 @@ export default function Sketchpad() {
                     }
                 }
             }
+
+            // Check if clicking on an existing element
             let found = null
             for (let i = s.elements.length - 1; i >= 0; i--) {
                 if (hitTest(s.elements[i], pos.x, pos.y)) { found = s.elements[i]; break }
             }
+
             if (found) {
+                // Clicked on an element — normal selection / drag
                 if (!(e.shiftKey || e.ctrlKey || e.metaKey)) {
                     if (!s.selectedIds.has(found.id)) s.selectedIds = new Set([found.id])
                 } else {
@@ -612,12 +630,19 @@ export default function Sketchpad() {
                 }
                 const newSel = s.elements.find(el => s.selectedIds.has(el.id)) || null
                 setSelectedEl(newSel)
+                setSelectionCount(s.selectedIds.size)
                 s.dragStart = { x: pos.x, y: pos.y }
                 s.dragEls = s.elements.filter(el => s.selectedIds.has(el.id)).map(el => JSON.parse(JSON.stringify(el)))
                 s.drawing = true
+                s.isMarquee = false
             } else {
+                // Clicked on empty space — start marquee selection
                 s.selectedIds = new Set()
                 setSelectedEl(null)
+                setSelectionCount(0)
+                s.marquee = { x: pos.x, y: pos.y, w: 0, h: 0 }
+                s.isMarquee = true
+                s.drawing = true
             }
             redraw(); return
         }
@@ -685,6 +710,21 @@ export default function Sketchpad() {
         }
 
         if (t === 'select') {
+            // Marquee drag
+            if (s.isMarquee && s.marquee) {
+                s.marquee.w = pos.x - s.marquee.x
+                s.marquee.h = pos.y - s.marquee.y
+                // Live-preview: highlight elements inside the marquee
+                const inside = new Set()
+                s.elements.forEach(el => {
+                    if (marqueeHitTest(el, s.marquee.x, s.marquee.y, s.marquee.w, s.marquee.h)) {
+                        inside.add(el.id)
+                    }
+                })
+                s.selectedIds = inside
+                redraw(); return
+            }
+            // Resize handle drag
             if (s.resizeHandle && s.resizeHandle.el) {
                 const el = s.elements.find(x => x.id === s.resizeHandle.el.id)
                 if (el && el.x1 !== undefined) {
@@ -697,6 +737,7 @@ export default function Sketchpad() {
                 }
                 return
             }
+            // Normal element drag
             if (s.dragStart && s.dragEls) {
                 const dx = pos.x - s.dragStart.x, dy = pos.y - s.dragStart.y
                 s.elements.forEach(el => {
@@ -727,26 +768,49 @@ export default function Sketchpad() {
         const s = stateRef.current
         if (!s.drawing) return
         s.drawing = false
+
         if (toolRef.current === 'pan') {
             s.panStart = null
-            // Trigger toolbar reposition after pan ends
             setViewVersion(v => v + 1)
             return
         }
+
         if (toolRef.current === 'select') {
+            if (s.isMarquee) {
+                // Finalize marquee — select all elements that intersect the rect
+                if (s.marquee) {
+                    const inside = new Set()
+                    s.elements.forEach(el => {
+                        if (marqueeHitTest(el, s.marquee.x, s.marquee.y, s.marquee.w, s.marquee.h)) {
+                            inside.add(el.id)
+                        }
+                    })
+                    s.selectedIds = inside
+                    setSelectionCount(inside.size)
+                    const firstSel = s.elements.find(el => inside.has(el.id)) || null
+                    setSelectedEl(firstSel ? { ...firstSel } : null)
+                }
+                s.marquee = null
+                s.isMarquee = false
+                setViewVersion(v => v + 1)
+                redraw()
+                return
+            }
             s.dragStart = null; s.dragEls = null; s.resizeHandle = null
-            // Update selectedEl reference so toolbar gets fresh bounds
             const freshEl = s.elements.find(el => s.selectedIds.has(el.id)) || null
             setSelectedEl(freshEl ? { ...freshEl } : null)
+            setSelectionCount(s.selectedIds.size)
             setViewVersion(v => v + 1)
             return
         }
+
         if (toolRef.current === 'vanish') {
             if (s.current) s.current.createdAt = Date.now()
             s.current = null
             startVanishLoop()
             return
         }
+
         if (s.current) {
             const p = s.current
             const ok = (p.points?.length > 1) || Math.abs((p.x2 || 0) - (p.x1 || 0)) > 3 || Math.abs((p.y2 || 0) - (p.y1 || 0)) > 3
@@ -846,7 +910,7 @@ export default function Sketchpad() {
     const clearAll = useCallback(() => {
         if (window.confirm('Clear everything?')) {
             stateRef.current.elements = []; stateRef.current.redo = []; stateRef.current.selectedIds = new Set()
-            setSelectedEl(null); redraw()
+            setSelectedEl(null); setSelectionCount(0); redraw()
         }
     }, [redraw])
 
@@ -854,7 +918,7 @@ export default function Sketchpad() {
         const s = stateRef.current
         if (s.selectedIds.size === 0) return
         s.elements = s.elements.filter(el => !s.selectedIds.has(el.id))
-        s.selectedIds = new Set(); setSelectedEl(null); s.redo = []; redraw()
+        s.selectedIds = new Set(); setSelectedEl(null); setSelectionCount(0); s.redo = []; redraw()
     }, [redraw])
 
     const duplicateSelected = useCallback(() => {
@@ -868,7 +932,7 @@ export default function Sketchpad() {
         })
         s.elements.push(...newEls)
         s.selectedIds = new Set(newEls.map(e => e.id))
-        setSelectedEl(newEls[0] || null); redraw()
+        setSelectedEl(newEls[0] || null); setSelectionCount(newEls.length); redraw()
     }, [redraw])
 
     const exportPNG = useCallback(() => {
@@ -879,8 +943,6 @@ export default function Sketchpad() {
         a.href = canvas.toDataURL('image/png')
         a.click()
     }, [])
-
-    const exportSVG = useCallback(() => { exportPNG() }, [exportPNG])
 
     const handleImageUpload = useCallback((e) => {
         const file = e.target.files?.[0]
@@ -915,21 +977,6 @@ export default function Sketchpad() {
         setZoom(1); setViewVersion(v => v + 1); redraw()
     }
 
-    useEffect(() => {
-        const kd = (e) => {
-            if (document.activeElement?.tagName === 'TEXTAREA' || document.activeElement?.tagName === 'INPUT') return
-            if ((e.ctrlKey || e.metaKey) && e.key === 'z') { e.preventDefault(); undo(); return }
-            if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || e.key === 'Y')) { e.preventDefault(); redo(); return }
-            if ((e.ctrlKey || e.metaKey) && e.key === 'd') { e.preventDefault(); duplicateSelected(); return }
-            if (e.key === 'Delete' || e.key === 'Backspace') deleteSelected()
-            if (e.key === 'Escape') { stateRef.current.selectedIds = new Set(); setSelectedEl(null); redraw() }
-            const map = { p: 'pencil', b: 'pen', h: 'highlighter', e: 'eraser', l: 'line', a: 'arrow', r: 'rect', c: 'circle', s: 'shape', t: 'text', n: 'sticky', v: 'select', m: 'pan', i: 'image' }
-            if (map[e.key]) setTool(map[e.key])
-        }
-        document.addEventListener('keydown', kd)
-        return () => document.removeEventListener('keydown', kd)
-    }, [undo, redo, deleteSelected, duplicateSelected, redraw])
-
     const fitToScreen = useCallback(() => {
         const s = stateRef.current
         if (!s.elements.length) return
@@ -951,20 +998,44 @@ export default function Sketchpad() {
         redraw()
     }, [redraw])
 
-    /* ─── Compute inline toolbar screen position ─── */
-    const inlineToolbarPos = useMemo(() => {
-        if (!selectedEl) return null
-        const s = stateRef.current
-        const b = getElementBounds(selectedEl)
-        // Convert world → screen
-        const screenX = b.x * s.zoom + s.panOffset.x
-        const screenY = b.y * s.zoom + s.panOffset.y
-        const screenW = b.w * s.zoom
-        return {
-            left: screenX + screenW / 2,
-            top: Math.max(8, screenY - 48),
+    useEffect(() => {
+        const kd = (e) => {
+            if (document.activeElement?.tagName === 'TEXTAREA' || document.activeElement?.tagName === 'INPUT') return
+            if ((e.ctrlKey || e.metaKey) && e.key === 'z') { e.preventDefault(); undo(); return }
+            if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || e.key === 'Y')) { e.preventDefault(); redo(); return }
+            if ((e.ctrlKey || e.metaKey) && e.key === 'd') { e.preventDefault(); duplicateSelected(); return }
+            if (e.key === 'Delete' || e.key === 'Backspace') deleteSelected()
+            if (e.key === 'Escape') {
+                stateRef.current.selectedIds = new Set()
+                stateRef.current.marquee = null
+                stateRef.current.isMarquee = false
+                setSelectedEl(null); setSelectionCount(0); redraw()
+            }
+            const map = { p: 'pencil', b: 'pen', h: 'highlighter', e: 'eraser', l: 'line', a: 'arrow', r: 'rect', c: 'circle', s: 'shape', t: 'text', n: 'sticky', v: 'select', m: 'pan', i: 'image' }
+            if (map[e.key]) setTool(map[e.key])
         }
-    }, [selectedEl, viewVersion]) // eslint-disable-line
+        document.addEventListener('keydown', kd)
+        return () => document.removeEventListener('keydown', kd)
+    }, [undo, redo, deleteSelected, duplicateSelected, redraw])
+
+    // Compute inline toolbar position — shown for any selection (single or multi)
+    const inlineToolbarPos = useMemo(() => {
+        const s = stateRef.current
+        if (s.selectedIds.size === 0) return null
+        // Compute bounding box of all selected elements
+        let minX = Infinity, minY = Infinity, maxX = -Infinity
+        s.elements.forEach(el => {
+            if (!s.selectedIds.has(el.id)) return
+            const b = getElementBounds(el)
+            minX = Math.min(minX, b.x); minY = Math.min(minY, b.y)
+            maxX = Math.max(maxX, b.x + b.w)
+        })
+        if (!isFinite(minX)) return null
+        const midWorldX = (minX + maxX) / 2
+        const screenX = midWorldX * s.zoom + s.panOffset.x
+        const screenY = minY * s.zoom + s.panOffset.y
+        return { left: screenX, top: Math.max(8, screenY - 48) }
+    }, [selectedEl, selectionCount, viewVersion]) // eslint-disable-line
 
     const S = useMemo(() => ({
         root: {
@@ -985,7 +1056,6 @@ export default function Sketchpad() {
             cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
             color: tid === 'vanish' && active ? '#ff2d55' : active ? '#4f46e5' : '#52525b',
             transition: 'all 0.12s', flexShrink: 0,
-            boxShadow: tid === 'vanish' && active ? '0 0 0 2px #ff2d5540, 0 0 8px #ff2d5530' : active ? '0 0 0 2px #c7d2fe' : 'none'
         }),
         iconBtn: (active = false) => ({
             width: 32, height: 32, border: `1px solid ${active ? '#e0e0ff' : '#e8e8e4'}`,
@@ -1004,15 +1074,6 @@ export default function Sketchpad() {
         },
         sidebarSection: { display: 'flex', flexDirection: 'column', gap: 6 },
         sidebarLabel: { fontSize: 10, fontWeight: 600, color: '#9ca3af', letterSpacing: '.06em', textTransform: 'uppercase' },
-        bottombar: {
-            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-            padding: '4px 12px', background: '#ffffff', borderTop: '1px solid #e8e8e4',
-            fontSize: 11, color: '#9ca3af', flexShrink: 0, userSelect: 'none'
-        },
-        kbd: {
-            display: 'inline-block', background: '#f4f4f2', border: '1px solid #ddd',
-            borderRadius: 3, padding: '0 4px', fontSize: 10, color: '#666'
-        },
         colorDot: (c, active) => ({
             width: 20, height: 20, borderRadius: '50%', background: c,
             border: active ? '2.5px solid #6366f1' : '2px solid transparent',
@@ -1025,11 +1086,10 @@ export default function Sketchpad() {
             background: '#ffffff', borderTop: '1px solid #e8e8e4',
             padding: '8px 12px', zIndex: 30
         },
-        tag: (c = '#6366f1') => ({
-            display: 'inline-flex', alignItems: 'center', gap: 4,
-            background: `${c}15`, color: c, border: `1px solid ${c}30`,
-            borderRadius: 6, padding: '2px 8px', fontSize: 11, fontWeight: 500
-        })
+        kbd: {
+            display: 'inline-block', background: '#f4f4f2', border: '1px solid #ddd',
+            borderRadius: 3, padding: '0 4px', fontSize: 10, color: '#666'
+        },
     }), [])
 
     const mob = isMobile()
@@ -1071,9 +1131,10 @@ export default function Sketchpad() {
         return 'crosshair'
     }
 
+    const hasSelection = selectionCount > 0
+
     return (
         <div style={S.root}>
-            {/* ── Top bar ── */}
             {!mob && (
                 <div style={S.topbar} className="sketchpad-scroll">
                     {DRAW_TOOLS.map((t, i) => t === null
@@ -1082,7 +1143,7 @@ export default function Sketchpad() {
                             <button key={t.id} style={S.toolBtn(tool === t.id, t.id)} title={`${t.label}${t.key ? ' (' + t.key + ')' : ''}`}
                                 onClick={() => setTool(t.id)}>
                                 {t.id === 'vanish'
-                                    ? <span style={{ fontSize: 13, color: tool === 'vanish' ? '#ff2d55' : '#999', textShadow: tool === 'vanish' ? '0 0 6px #ff2d5580' : 'none' }}>✦</span>
+                                    ? <span style={{ fontSize: 13, color: tool === 'vanish' ? '#ff2d55' : '#999' }}>✦</span>
                                     : icons[t.icon]
                                         ? <Icon d={icons[t.icon]} />
                                         : <span style={{ fontSize: 13 }}>{t.label}</span>}
@@ -1094,8 +1155,7 @@ export default function Sketchpad() {
                     {tool === 'shape' && (
                         <>
                             {SHAPES.map(sh => (
-                                <button key={sh} style={S.toolBtn(shapeType === sh)} title={sh}
-                                    onClick={() => setShapeType(sh)}>
+                                <button key={sh} style={S.toolBtn(shapeType === sh)} title={sh} onClick={() => setShapeType(sh)}>
                                     <span style={{ fontSize: 14 }}>{SHAPE_ICONS[sh]}</span>
                                 </button>
                             ))}
@@ -1122,14 +1182,14 @@ export default function Sketchpad() {
                             <div key={c} style={S.colorDot(c, color === c)} onClick={() => setColor(c)} title={c} />
                         ))}
                         <input type="color" value={color} onChange={e => setColor(e.target.value)}
-                            style={{ width: 20, height: 20, border: 'none', borderRadius: '50%', cursor: 'pointer', padding: 0, overflow: 'hidden' }} title="Custom color" />
+                            style={{ width: 20, height: 20, border: 'none', borderRadius: '50%', cursor: 'pointer', padding: 0 }} />
                     </div>
                     <div style={S.sep} />
 
                     <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                         <span style={S.label}>Fill</span>
                         <div style={{ ...S.colorDot('transparent', fill === 'none'), border: '1.5px dashed #ccc', position: 'relative' }}
-                            onClick={() => setFill('none')} title="No fill">
+                            onClick={() => setFill('none')}>
                             {fill === 'none' && <span style={{ position: 'absolute', color: '#e55', fontSize: 12, top: -2, left: 2 }}>×</span>}
                         </div>
                         {COLORS.slice(0, 6).map(c => (
@@ -1154,7 +1214,7 @@ export default function Sketchpad() {
                                 {FONT_SIZES.map(f => <option key={f} value={f}>{f}px</option>)}
                             </select>
                             {FONT_LABELS.map((fl, fi) => (
-                                <button key={fi} style={S.toolBtn(fontIdx === fi)} onClick={() => setFontIdx(fi)} title={fl}>
+                                <button key={fi} style={S.toolBtn(fontIdx === fi)} onClick={() => setFontIdx(fi)}>
                                     <span style={{ fontSize: 12, fontFamily: FONTS[fi] }}>{fl[0]}</span>
                                 </button>
                             ))}
@@ -1172,26 +1232,23 @@ export default function Sketchpad() {
                     <div style={S.sep} />
 
                     <button style={S.iconBtn()} onClick={undo} title="Undo (Ctrl+Z)"><Icon d={icons.undo} /></button>
-                    <button style={S.iconBtn()} onClick={redo} title="Redo (Ctrl+Y)"><Icon d={icons.redo} /></button>
+                    <button style={S.iconBtn()} onClick={redo} title="Redo"><Icon d={icons.redo} /></button>
                     <button style={S.iconBtn()} onClick={deleteSelected} title="Delete selected (Del)"><Icon d={icons.trash} /></button>
                     <button style={S.iconBtn()} onClick={duplicateSelected} title="Duplicate (Ctrl+D)"><Icon d={icons.copy} /></button>
                     <div style={S.sep} />
-                    <button style={S.iconBtn()} onClick={zoomOut} title="Zoom out"><Icon d={icons.zoomOut} /></button>
+                    <button style={S.iconBtn()} onClick={zoomOut}><Icon d={icons.zoomOut} /></button>
                     <button style={{ ...S.iconBtn(), width: 'auto', padding: '0 8px', fontSize: 11, color: '#555', cursor: 'pointer' }}
-                        onClick={resetZoom} title="Reset zoom">{Math.round(zoom * 100)}%</button>
-                    <button style={S.iconBtn()} onClick={zoomIn} title="Zoom in"><Icon d={icons.zoomIn} /></button>
-                    <button style={{ ...S.iconBtn(), width: 'auto', padding: '0 6px', fontSize: 10 }} onClick={fitToScreen} title="Fit to screen">Fit</button>
+                        onClick={resetZoom}>{Math.round(zoom * 100)}%</button>
+                    <button style={S.iconBtn()} onClick={zoomIn}><Icon d={icons.zoomIn} /></button>
+                    <button style={{ ...S.iconBtn(), width: 'auto', padding: '0 6px', fontSize: 10 }} onClick={fitToScreen}>Fit</button>
                     <div style={S.sep} />
                     <button style={{ ...S.iconBtn(), width: 'auto', padding: '0 8px', fontSize: 11, color: '#4f46e5', fontWeight: 600 }} onClick={exportPNG}>
                         <Icon d={icons.download} />&nbsp;Export
                     </button>
-                    <button style={{ ...S.iconBtn(), width: 'auto', padding: '0 8px', fontSize: 11 }} onClick={clearAll}>
-                        Clear
-                    </button>
+                    <button style={{ ...S.iconBtn(), width: 'auto', padding: '0 8px', fontSize: 11 }} onClick={clearAll}>Clear</button>
                 </div>
             )}
 
-            {/* ── Canvas area ── */}
             <div ref={wrapRef} style={S.canvasWrap}>
                 <canvas
                     ref={canvasRef}
@@ -1200,77 +1257,63 @@ export default function Sketchpad() {
                     onDoubleClick={onDblClick}
                 />
 
-                {/* ── Inline selection toolbar ── */}
-                {selectedEl && inlineToolbarPos && (
-                    <div
-                        style={{
-                            position: 'absolute',
-                            left: inlineToolbarPos.left,
-                            top: inlineToolbarPos.top,
-                            transform: 'translateX(-50%)',
-                            zIndex: 40,
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 2,
-                            background: '#18181b',
-                            borderRadius: 10,
-                            padding: '5px 6px',
-                            boxShadow: '0 4px 20px rgba(0,0,0,0.22), 0 1px 4px rgba(0,0,0,0.15)',
-                            pointerEvents: 'auto',
-                            userSelect: 'none',
-                            // small arrow pointing down toward selection
-                            filter: 'drop-shadow(0 2px 8px rgba(0,0,0,0.18))',
-                        }}
-                    >
-                        {/* Tool label badge */}
+                {/* ── Inline selection toolbar — appears above selection ── */}
+                {hasSelection && inlineToolbarPos && (
+                    <div style={{
+                        position: 'absolute',
+                        left: inlineToolbarPos.left,
+                        top: inlineToolbarPos.top,
+                        transform: 'translateX(-50%)',
+                        zIndex: 40,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 2,
+                        background: '#18181b',
+                        borderRadius: 10,
+                        padding: '5px 6px',
+                        boxShadow: '0 4px 20px rgba(0,0,0,0.22)',
+                        pointerEvents: 'auto',
+                        userSelect: 'none',
+                    }}>
+                        {/* Selection count badge */}
                         <span style={{
                             fontSize: 10, color: '#a1a1aa', fontWeight: 500,
-                            padding: '0 6px', letterSpacing: '.04em', textTransform: 'uppercase'
+                            padding: '0 6px', letterSpacing: '.04em',
                         }}>
-                            {selectedEl.tool}
+                            {selectionCount > 1 ? `${selectionCount} selected` : (selectedEl?.tool || 'element')}
                         </span>
 
-                        {/* Divider */}
                         <div style={{ width: 1, height: 16, background: '#3f3f46', margin: '0 2px' }} />
 
                         {/* Duplicate */}
-                        <button
-                            className="sel-toolbar-btn"
-                            title="Duplicate (Ctrl+D)"
-                            onClick={duplicateSelected}
+                        <button className="sel-toolbar-btn" title="Duplicate (Ctrl+D)" onClick={duplicateSelected}
                             style={{
                                 display: 'flex', alignItems: 'center', gap: 5,
                                 background: 'transparent', border: 'none', cursor: 'pointer',
                                 color: '#d4d4d8', padding: '3px 8px', borderRadius: 6,
                                 fontSize: 12, fontFamily: "'DM Sans', sans-serif",
-                                transition: 'background 0.12s, color 0.12s',
-                            }}
-                        >
+                                transition: 'background 0.12s',
+                            }}>
                             <Icon d={icons.copy} size={13} />
                             <span>Copy</span>
                         </button>
 
-                        {/* Divider */}
                         <div style={{ width: 1, height: 16, background: '#3f3f46', margin: '0 2px' }} />
 
                         {/* Delete */}
-                        <button
-                            className="sel-toolbar-btn sel-toolbar-btn-del"
-                            title="Delete (Del)"
-                            onClick={deleteSelected}
+                        <button className="sel-toolbar-btn sel-toolbar-btn-del" title="Delete (Del)" onClick={deleteSelected}
                             style={{
                                 display: 'flex', alignItems: 'center', gap: 5,
                                 background: 'transparent', border: 'none', cursor: 'pointer',
                                 color: '#f87171', padding: '3px 8px', borderRadius: 6,
                                 fontSize: 12, fontFamily: "'DM Sans', sans-serif",
-                                transition: 'background 0.12s, color 0.12s',
-                            }}
-                        >
+                                transition: 'background 0.12s',
+                            }}>
                             <Icon d={icons.trash} size={13} />
-                            <span>Delete</span>
+                            <span>Delete{selectionCount > 1 ? ` (${selectionCount})` : ''}</span>
                         </button>
 
-                        {/* Small caret pointing down */}
+                        {/* Down caret */}
                         <div style={{
                             position: 'absolute', bottom: -5, left: '50%',
                             transform: 'translateX(-50%)',
@@ -1284,9 +1327,7 @@ export default function Sketchpad() {
 
                 {/* Floating text input */}
                 {textInput && (
-                    <textarea
-                        ref={textareaRef}
-                        defaultValue=""
+                    <textarea ref={textareaRef} defaultValue=""
                         style={{
                             position: 'absolute', left: textInput.x, top: textInput.y,
                             border: '1.5px dashed #6366f1', background: 'rgba(255,255,255,0.9)',
@@ -1307,9 +1348,7 @@ export default function Sketchpad() {
 
                 {/* Floating label input */}
                 {labelMode && (
-                    <input
-                        autoFocus
-                        value={labelMode.val}
+                    <input autoFocus value={labelMode.val}
                         onChange={e => setLabelMode(m => ({ ...m, val: e.target.value }))}
                         style={{
                             position: 'absolute', left: labelMode.x - 60, top: labelMode.y - 14,
@@ -1323,12 +1362,13 @@ export default function Sketchpad() {
                     />
                 )}
 
-                {/* Properties panel (no delete/duplicate — those are in the inline toolbar now) */}
-                {selectedEl && !mob && (
+                {/* Properties panel */}
+                {selectedEl && !mob && selectionCount === 1 && (
                     <div style={S.propPanel} className="sketchpad-scroll">
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                             <span style={{ ...S.sidebarLabel, color: '#6366f1' }}>Properties</span>
-                            <button style={{ ...S.iconBtn(), width: 20, height: 20 }} onClick={() => { stateRef.current.selectedIds = new Set(); setSelectedEl(null); redraw() }}>
+                            <button style={{ ...S.iconBtn(), width: 20, height: 20 }}
+                                onClick={() => { stateRef.current.selectedIds = new Set(); setSelectedEl(null); setSelectionCount(0); redraw() }}>
                                 <Icon d={icons.close} size={12} />
                             </button>
                         </div>
@@ -1384,19 +1424,17 @@ export default function Sketchpad() {
                     <button style={{ ...S.iconBtn(), fontSize: 10, width: 'auto', padding: '0 6px' }} onClick={fitToScreen}>Fit</button>
                 </div>
 
-                {/* Hint bar */}
                 {!mob && (
                     <div style={{ position: 'absolute', bottom: 12, left: 12, fontSize: 10, color: '#bbb', pointerEvents: 'none' }}>
-                        <span style={S.kbd}>Ctrl+Z</span> Undo &nbsp;
+                        <span style={S.kbd}>V</span> Select &nbsp;
+                        <span style={S.kbd}>drag</span> Marquee select &nbsp;
                         <span style={S.kbd}>Del</span> Delete &nbsp;
                         <span style={S.kbd}>Ctrl+D</span> Duplicate &nbsp;
-                        <span style={S.kbd}>Dbl-click</span> Label shape &nbsp;
                         <span style={S.kbd}>Scroll</span> Zoom
                     </div>
                 )}
             </div>
 
-            {/* ── Mobile bottom toolbar ── */}
             {mob && (
                 <div style={{ ...S.mobileBottom, display: 'flex', flexDirection: 'column', gap: 6 }}>
                     <div style={{ display: 'flex', gap: 4, justifyContent: 'space-around' }}>
@@ -1405,7 +1443,7 @@ export default function Sketchpad() {
                                 flex: 1, height: 30, border: 'none', borderRadius: 6,
                                 background: mobileTab === tab ? '#eef2ff' : 'transparent',
                                 color: mobileTab === tab ? '#4f46e5' : '#71717a',
-                                fontSize: 10, fontWeight: 600, cursor: 'pointer', textTransform: 'uppercase', letterSpacing: '.05em'
+                                fontSize: 10, fontWeight: 600, cursor: 'pointer', textTransform: 'uppercase'
                             }} onClick={() => setMobileTab(tab)}>{tab}</button>
                         ))}
                     </div>
@@ -1438,9 +1476,7 @@ export default function Sketchpad() {
                             <button style={S.iconBtn()} onClick={deleteSelected}><Icon d={icons.trash} /></button>
                             <button style={S.iconBtn()} onClick={zoomOut}><Icon d={icons.zoomOut} /></button>
                             <button style={S.iconBtn()} onClick={zoomIn}><Icon d={icons.zoomIn} /></button>
-                            <button style={{ ...S.iconBtn(), width: 'auto', padding: '0 8px', fontSize: 11, color: '#4f46e5', fontWeight: 600 }} onClick={exportPNG}>
-                                Export
-                            </button>
+                            <button style={{ ...S.iconBtn(), width: 'auto', padding: '0 8px', fontSize: 11, color: '#4f46e5', fontWeight: 600 }} onClick={exportPNG}>Export</button>
                             <button style={{ ...S.iconBtn(), width: 'auto', padding: '0 8px', fontSize: 11 }} onClick={clearAll}>Clear</button>
                         </div>
                     )}
