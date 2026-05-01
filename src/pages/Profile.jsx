@@ -48,7 +48,7 @@ const Profile = () => {
     const fileRef = useRef(null);
 
     useEffect(() => {
-        fetch(`${API_BASE}/user/profile`, { credentials: "include" })
+        fetch(`${API_BASE}/v1/user/profile`, { credentials: "include" })
             .then(r => r.json())
             .then(d => {
                 if (d.status) { setProfile(d.data); setForm(d.data); }
@@ -81,7 +81,7 @@ const Profile = () => {
                 formData.append("profile", fileRef.current.files[0]);
             }
 
-            const res = await fetch(`${API_BASE}/user/profile`, {
+            const res = await fetch(`${API_BASE}/v1/user/profile`, {
                 method: "PUT",
                 credentials: "include",
                 body: formData,

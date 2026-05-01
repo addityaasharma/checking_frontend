@@ -1,6 +1,6 @@
 import React, { useState, useRef } from "react";
 import { ScratchPadLogo } from "../component/DashboardLayout";
-import {API_BASE} from "../api";
+import { API_BASE } from "../api";
 
 const BoboBrand = () => (
     <div className="flex items-center justify-center gap-2 mb-8">
@@ -56,9 +56,7 @@ const Auth = () => {
         confirm: "",
     });
     const [signupEmail, setSignupEmail] = useState("");
-
     const clearError = () => setError("");
-
     const switchTab = (t) => { setTab(t); clearError(); };
 
     const handleLogin = async () => {
@@ -66,6 +64,7 @@ const Auth = () => {
             return setError("Please fill in all fields.");
         setLoading(true);
         clearError();
+
         try {
             const res = await fetch(`${API_BASE}/v1/user/login/bobo`, {
                 method: "POST",
@@ -185,8 +184,6 @@ const Auth = () => {
                 <BoboBrand />
 
                 <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-8">
-
-                    {/* ── VERIFY SCREEN ── */}
                     {tab === "verify" && (
                         <div>
                             <div
@@ -213,7 +210,6 @@ const Auth = () => {
                             </div>
 
                             <OTPInput value={otp} onChange={setOtp} />
-
                             {error && <p className="text-sm text-red-500 text-center mt-3">{error}</p>}
 
                             <button
@@ -234,7 +230,6 @@ const Auth = () => {
                     {/* ── LOGIN FORM ── */}
                     {tab === "login" && (
                         <div className="space-y-4">
-
                             <div>
                                 <label className="block text-xs font-medium text-gray-600 mb-1.5">Email address</label>
                                 <input
@@ -272,21 +267,6 @@ const Auth = () => {
                                 {loading ? "Signing in…" : "Sign in"}
                             </button>
 
-                            {/* <div className="flex items-center gap-3 text-xs text-gray-400">
-                                <div className="flex-1 h-px bg-gray-100" />
-                                or continue with
-                                <div className="flex-1 h-px bg-gray-100" />
-                            </div> */}
-
-                            {/* <button
-                                onClick={handleArcLogin}
-                                disabled={loading}
-                                className="w-full py-2.5 border border-gray-200 rounded-xl flex items-center justify-center gap-2.5 text-sm text-gray-700 hover:bg-gray-50 transition"
-                            >
-                                <div className="w-5 h-5 rounded-full bg-gradient-to-br from-orange-400 via-pink-500 to-violet-500" />
-                                Continue with Arc
-                            </button> */}
-
                             <p className="text-sm text-gray-500 text-center pt-1">
                                 Don't have an account?{" "}
                                 <span
@@ -302,10 +282,6 @@ const Auth = () => {
                     {/* ── SIGNUP FORM ── */}
                     {tab === "signup" && (
                         <div className="space-y-4">
-                            {/* <div className="mb-6">
-                                <h2 className="text-xl text-center font-semibold text-gray-900">Start Creating</h2>
-                            </div> */}
-
                             <div>
                                 <label className="block text-xs font-medium text-gray-600 mb-1.5">Full name</label>
                                 <input
@@ -363,15 +339,6 @@ const Auth = () => {
                                 or
                                 <div className="flex-1 h-px bg-gray-100" />
                             </div>
-
-                            {/* <button
-                                onClick={handleArcLogin}
-                                disabled={loading}
-                                className="w-full py-2.5 border border-gray-200 rounded-xl flex items-center justify-center gap-2.5 text-sm text-gray-700 hover:bg-gray-50 transition"
-                            >
-                                <div className="w-5 h-5 rounded-full bg-gradient-to-br from-orange-400 via-pink-500 to-violet-500" />
-                                Continue with Arc
-                            </button> */}
 
                             <p className="text-sm text-gray-500 text-center pt-1">
                                 Already have an account?{" "}

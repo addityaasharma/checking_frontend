@@ -1,5 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
-import {API_BASE} from "../api";
+import { API_BASE } from "../api";
+import { useUser } from "../utils/UserContext";
+import { useNavigate } from "react-router-dom";
 
 
 const Icon = ({ path, size = 15, color = "currentColor", strokeWidth = 2, fill = "none" }) => (
@@ -24,7 +26,7 @@ const Icons = {
 const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi);
 const MIN_W = 280, MAX_W = 480, MIN_H = 200, MAX_H = 580;
 
-/* ── Smooth expand/collapse for todo detail ── */
+
 function ExpandPanel({ open, children }) {
     const panelRef = useRef(null);
 
@@ -56,6 +58,7 @@ function ExpandPanel({ open, children }) {
 export default function Todo() {
     const [todos, setTodos] = useState([]);
     const [input, setInput] = useState({ name: "", task: "" });
+    const [isDraggingOrResizing, setIsDraggingOrResizing] = useState(false);
     const [minimized, setMin] = useState(false);
     const [loading, setLoading] = useState(true);
     const [adding, setAdding] = useState(false);
@@ -70,8 +73,9 @@ export default function Todo() {
     const [editInput, setEditInput] = useState({ name: "", task: "" });
     const [savingEdit, setSavingEdit] = useState(false);
     const [, tick] = useState(0);
+    const { user } = useUser();
+    const navigate = useNavigate();
 
-    /* ── Focus the name input when form opens (replaces autoFocus) ── */
     const nameInputRef = useRef(null);
     useEffect(() => {
         if (showForm && nameInputRef.current) {
@@ -79,9 +83,10 @@ export default function Todo() {
         }
     }, [showForm]);
 
-    /* ── pos/size stored in refs so drag doesn't cause extra re-renders ── */
     const posRef = useRef({ x: 60, y: 60 });
+    const [pos, setPos] = useState({ x: 60, y: 60 });
     const sizeRef = useRef({ w: 320, h: 400 });
+    const [size, setSize] = useState({ w: 320, h: 400 });
     const boxRef = useRef(null);
     const rafRef = useRef(null);
 
@@ -89,16 +94,17 @@ export default function Todo() {
     const resize = useRef({ active: false, ox: 0, oy: 0, ow: 0, oh: 0 });
     const didMove = useRef(false);
 
-    /* ── responsive ── */
     useEffect(() => {
         const check = () => {
             const mobile = window.innerWidth < 640;
             setIsSheet(mobile);
             if (!mobile) {
-                posRef.current = {
+                const newPos = {
                     x: clamp(window.innerWidth - 340, 8, window.innerWidth - MIN_W),
                     y: clamp(window.innerHeight - 440, 8, window.innerHeight - 60),
                 };
+                posRef.current = newPos;
+                setPos(newPos); // 👈
                 tick(n => n + 1);
             }
         };
@@ -107,7 +113,6 @@ export default function Todo() {
         return () => window.removeEventListener("resize", check);
     }, []);
 
-    /* ── fetch ── */
     const fetchTodos = async () => {
         try {
             const r = await fetch(`${API_BASE}/v1/user/todo`, { credentials: "include" });
@@ -118,9 +123,7 @@ export default function Todo() {
     };
     useEffect(() => { fetchTodos(); }, []);
 
-    /* ══════════════════════════════════════════
-       RAF-BASED DRAG + RESIZE (buttery smooth)
-    ══════════════════════════════════════════ */
+
     useEffect(() => {
         const move = (cx, cy) => {
             didMove.current = true;
@@ -132,6 +135,7 @@ export default function Todo() {
                     const x = clamp(cx - drag.current.ox, 0, window.innerWidth - w);
                     const y = clamp(cy - drag.current.oy, 0, window.innerHeight - h);
                     posRef.current = { x, y };
+                    setPos({ x, y }); // 👈
                     if (boxRef.current) {
                         boxRef.current.style.left = x + "px";
                         boxRef.current.style.top = y + "px";
@@ -142,6 +146,7 @@ export default function Todo() {
                     const w = clamp(ow + (cx - ox), MIN_W, MAX_W);
                     const h = clamp(oh + (cy - oy), MIN_H, MAX_H);
                     sizeRef.current = { w, h };
+                    setSize({ w, h });
                     if (boxRef.current) {
                         boxRef.current.style.width = w + "px";
                         boxRef.current.style.height = h + "px";
@@ -154,6 +159,7 @@ export default function Todo() {
             if (drag.current.active || resize.current.active) {
                 drag.current.active = false;
                 resize.current.active = false;
+                setIsDraggingOrResizing(false); // 👈
                 tick(n => n + 1);
             }
         };
@@ -176,13 +182,14 @@ export default function Todo() {
     const startDrag = (cx, cy) => {
         didMove.current = false;
         drag.current = { active: true, ox: cx - posRef.current.x, oy: cy - posRef.current.y };
+        setIsDraggingOrResizing(true); 
     };
 
     const startResize = (cx, cy) => {
         resize.current = { active: true, ox: cx, oy: cy, ow: sizeRef.current.w, oh: sizeRef.current.h };
+        setIsDraggingOrResizing(true); 
     };
 
-    /* ── CRUD ── */
     const addTodo = async () => {
         if (!input.name.trim() || !input.task.trim()) return;
         setAdding(true);
@@ -265,312 +272,341 @@ export default function Todo() {
         }}>{done ? "Done" : "To Do"}</span>
     );
 
-    /* ══════════ BODY — called as a function, not <Body />, to avoid remount ══════════ */
-    const renderBody = () => (
-        <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
-
-            {/* Search */}
-            <div style={{ padding: "8px 12px 0" }}>
+    const renderBody = () => {
+        if (!user) return (
+            <div style={{
+                display: "flex", flexDirection: "column", alignItems: "center",
+                justifyContent: "center", flex: 1, gap: 10, padding: "28px 20px",
+            }}>
                 <div style={{
-                    display: "flex", alignItems: "center", gap: 7,
-                    background: "#f5f5f7", borderRadius: 10, padding: "7px 11px",
+                    width: 40, height: 40, borderRadius: 12, background: "#ede9fe",
+                    display: "flex", alignItems: "center", justifyContent: "center",
                 }}>
-                    <Icon path={Icons.search} size={13} color="#9ca3af" />
-                    <input type="text" value={search} onChange={e => setSearch(e.target.value)}
-                        placeholder="Search tasks..."
-                        style={{
-                            flex: 1, border: "none", background: "transparent", outline: "none",
-                            fontSize: 12, color: "#374151", fontFamily: "inherit",
-                        }}
-                    />
+                    <Icon path={Icons.check} size={18} color="#7c3aed" />
                 </div>
-            </div>
-
-            {/* Filter tabs */}
-            <div style={{ display: "flex", padding: "6px 12px 0", borderBottom: "1.5px solid #f0f0f0" }}>
-                {["all", "todo", "done"].map(tab => {
-                    const label = tab === "all" ? "All" : tab === "todo" ? "To Do" : "Done";
-                    const active = filter === tab;
-                    return (
-                        <button key={tab} onClick={() => setFilter(tab)} style={{
-                            display: "flex", alignItems: "center", gap: 5,
-                            padding: "5px 10px", background: "none", border: "none", cursor: "pointer",
-                            fontSize: 11, fontWeight: active ? 700 : 500,
-                            color: active ? "#7c3aed" : "#9ca3af",
-                            borderBottom: active ? "2px solid #7c3aed" : "2px solid transparent",
-                            marginBottom: -1.5, transition: "all .14s",
-                        }}>
-                            {label}
-                            <span style={{
-                                fontSize: 10, fontWeight: 700, minWidth: 16, height: 16,
-                                display: "flex", alignItems: "center", justifyContent: "center",
-                                borderRadius: 8, padding: "0 4px",
-                                background: active ? "#ede9fe" : "#f3f4f6",
-                                color: active ? "#7c3aed" : "#9ca3af",
-                            }}>{counts[tab]}</span>
-                        </button>
-                    );
-                })}
-            </div>
-
-            {/* Add form */}
-            {showForm && (
-                <div style={{ padding: "8px 12px", borderBottom: "1px solid #f0f0f0", display: "flex", flexDirection: "column", gap: 6 }}>
-                    {/* ── ref-based focus instead of autoFocus ── */}
-                    <input
-                        ref={nameInputRef}
-                        type="text"
-                        value={input.name}
-                        onChange={e => setInput(p => ({ ...p, name: e.target.value }))}
-                        placeholder="Task title"
-                        style={{
-                            width: "100%", boxSizing: "border-box", fontSize: 12, padding: "7px 11px",
-                            background: "#f9fafb", border: "1.5px solid #e5e7eb", borderRadius: 9,
-                            outline: "none", fontFamily: "inherit", color: "#1f2937",
-                        }}
-                        onFocus={e => e.target.style.borderColor = "#7c3aed"}
-                        onBlur={e => e.target.style.borderColor = "#e5e7eb"}
-                    />
-                    <textarea rows={2} value={input.task}
-                        onChange={e => setInput(p => ({ ...p, task: e.target.value }))}
-                        onKeyDown={e => e.key === "Enter" && !e.shiftKey && addTodo()}
-                        placeholder="Description…"
-                        style={{
-                            width: "100%", boxSizing: "border-box", fontSize: 12, padding: "7px 11px",
-                            background: "#f9fafb", border: "1.5px solid #e5e7eb", borderRadius: 9,
-                            outline: "none", fontFamily: "inherit", color: "#1f2937", resize: "none",
-                        }}
-                        onFocus={e => e.target.style.borderColor = "#7c3aed"}
-                        onBlur={e => e.target.style.borderColor = "#e5e7eb"}
-                    />
-                    <div style={{ display: "flex", gap: 6 }}>
-                        <button onClick={addTodo} disabled={adding} style={{
-                            flex: 1, padding: "7px 0", background: "#7c3aed", color: "#fff",
-                            border: "none", borderRadius: 9, fontSize: 12, fontWeight: 700,
-                            cursor: "pointer", opacity: adding ? .6 : 1, fontFamily: "inherit",
-                        }}>{adding ? "Adding…" : "Add task"}</button>
-                        <button onClick={() => { setShowForm(false); setInput({ name: "", task: "" }); }} style={{
-                            flex: 1, padding: "7px 0", background: "#fff", color: "#6b7280",
-                            border: "1.5px solid #e5e7eb", borderRadius: 9, fontSize: 12,
-                            fontWeight: 600, cursor: "pointer", fontFamily: "inherit",
-                        }}>Cancel</button>
-                    </div>
-                </div>
-            )}
-
-            {/* List */}
-            <div style={{ flex: 1, overflowY: "auto", padding: "4px 8px" }}>
-                {loading && (
-                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", padding: "28px 0", gap: 8 }}>
-                        <style>{`@keyframes _spin{to{transform:rotate(360deg)}}`}</style>
-                        <div style={{
-                            width: 18, height: 18, border: "2px solid #ddd8fc", borderTopColor: "#7c3aed",
-                            borderRadius: "50%", animation: "_spin .7s linear infinite",
-                        }} />
-                        <p style={{ fontSize: 11, color: "#9ca3af", margin: 0 }}>Loading…</p>
-                    </div>
-                )}
-                {!loading && filtered.length === 0 && (
-                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", padding: "28px 0", gap: 6 }}>
-                        <div style={{
-                            width: 34, height: 34, borderRadius: 11, background: "#ede9fe",
-                            display: "flex", alignItems: "center", justifyContent: "center",
-                        }}>
-                            <Icon path={Icons.check} size={16} color="#7c3aed" />
-                        </div>
-                        <p style={{ fontSize: 11, fontWeight: 600, color: "#9ca3af", margin: 0 }}>
-                            {search ? "No results" : "No tasks yet"}
-                        </p>
-                    </div>
-                )}
-                {filtered.map(todo => {
-                    const isExp = expanded === todo.id;
-                    const isStar = starred.has(todo.id);
-                    return (
-                        <div key={todo.id} style={{
-                            borderRadius: 10, margin: "3px 0",
-                            background: isExp ? "#faf8ff" : "#fff",
-                            border: `1.5px solid ${isExp ? "#ddd6fe" : "#f3f4f6"}`,
-                            transition: "border-color .18s, background .18s",
-                            overflow: "hidden",
-                        }}>
-                            <div
-                                style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 10px", cursor: "pointer" }}
-                                onClick={() => setExpanded(isExp ? null : todo.id)}
-                            >
-                                <button onClick={e => { e.stopPropagation(); toggleTodo(todo); }} style={{
-                                    width: 17, height: 17, borderRadius: 5, flexShrink: 0,
-                                    border: todo.is_completed ? "none" : "2px solid #d1d5db",
-                                    background: todo.is_completed ? "#7c3aed" : "transparent",
-                                    display: "flex", alignItems: "center", justifyContent: "center",
-                                    cursor: "pointer", padding: 0, transition: "all .13s",
-                                    boxShadow: todo.is_completed ? "0 2px 5px rgba(124,58,237,.28)" : "none",
-                                }}>
-                                    {todo.is_completed && (
-                                        <svg width={8} height={8} viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth={3.5} strokeLinecap="round">
-                                            <path d="M5 13l4 4L19 7" />
-                                        </svg>
-                                    )}
-                                </button>
-
-                                <div style={{ flex: 1, minWidth: 0 }}>
-                                    <p style={{
-                                        margin: 0, fontSize: 12, fontWeight: 600,
-                                        color: todo.is_completed ? "#9ca3af" : "#1f2937",
-                                        textDecoration: todo.is_completed ? "line-through" : "none",
-                                        whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
-                                    }}>{todo.name}</p>
-                                    {!isExp && (
-                                        <p style={{
-                                            margin: "1px 0 0", fontSize: 10, color: "#9ca3af",
-                                            textDecoration: todo.is_completed ? "line-through" : "none",
-                                            whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
-                                        }}>{todo.task}</p>
-                                    )}
-                                </div>
-
-                                <Badge done={todo.is_completed} />
-
-                                <button onClick={e => { e.stopPropagation(); toggleStar(todo.id); }} style={{
-                                    background: "none", border: "none", cursor: "pointer",
-                                    padding: 2, display: "flex", alignItems: "center", borderRadius: 5,
-                                }}>
-                                    <Icon path={Icons.star} size={13}
-                                        color={isStar ? "#f59e0b" : "#d1d5db"}
-                                        fill={isStar ? "#f59e0b" : "none"}
-                                        strokeWidth={isStar ? 0 : 2}
-                                    />
-                                </button>
-
-                                {/* Animated chevron */}
-                                <div style={{
-                                    transition: "transform 0.13s cubic-bezier(0.4,0,0.2,1)",
-                                    transform: isExp ? "rotate(180deg)" : "rotate(0deg)",
-                                    display: "flex", alignItems: "center",
-                                }}>
-                                    <Icon path={Icons.chevDown} size={12} color="#a78bfa" />
-                                </div>
-                            </div>
-
-                            {/* ── Smooth expand panel ── */}
-                            <ExpandPanel open={isExp}>
-                                <div style={{ padding: "0 10px 9px 10px" }}>
-                                    {editing === todo.id ? (
-                                        /* ── Edit form ── */
-                                        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                                            <input
-                                                value={editInput.name}
-                                                onChange={e => setEditInput(p => ({ ...p, name: e.target.value }))}
-                                                placeholder="Task title"
-                                                style={{
-                                                    width: "100%", boxSizing: "border-box", fontSize: 12,
-                                                    padding: "7px 10px", background: "#f9fafb",
-                                                    border: "1.5px solid #7c3aed", borderRadius: 8,
-                                                    outline: "none", fontFamily: "inherit", color: "#1f2937",
-                                                }}
-                                                onFocus={e => e.target.style.borderColor = "#7c3aed"}
-                                                onBlur={e => e.target.style.borderColor = "#ddd6fe"}
-                                            />
-                                            <textarea
-                                                rows={3}
-                                                value={editInput.task}
-                                                onChange={e => setEditInput(p => ({ ...p, task: e.target.value }))}
-                                                onKeyDown={e => e.key === "Enter" && e.ctrlKey && updateTodo(todo.id)}
-                                                placeholder="Description…"
-                                                style={{
-                                                    width: "100%", boxSizing: "border-box", fontSize: 11,
-                                                    padding: "7px 10px", background: "#f9fafb",
-                                                    border: "1.5px solid #ddd6fe", borderRadius: 8,
-                                                    outline: "none", fontFamily: "inherit", color: "#1f2937",
-                                                    resize: "vertical", lineHeight: 1.6,
-                                                }}
-                                                onFocus={e => e.target.style.borderColor = "#7c3aed"}
-                                                onBlur={e => e.target.style.borderColor = "#ddd6fe"}
-                                            />
-                                            <div style={{ display: "flex", gap: 5 }}>
-                                                <button
-                                                    onClick={e => { e.stopPropagation(); updateTodo(todo.id); }}
-                                                    disabled={savingEdit}
-                                                    style={{
-                                                        flex: 1, padding: "6px 0", background: "#7c3aed", color: "#fff",
-                                                        border: "none", borderRadius: 7, fontSize: 11, fontWeight: 700,
-                                                        cursor: "pointer", opacity: savingEdit ? .6 : 1, fontFamily: "inherit",
-                                                    }}
-                                                >{savingEdit ? "Saving…" : "Save"}</button>
-                                                <button
-                                                    onClick={e => { e.stopPropagation(); cancelEdit(); }}
-                                                    style={{
-                                                        flex: 1, padding: "6px 0", background: "#fff", color: "#6b7280",
-                                                        border: "1.5px solid #e5e7eb", borderRadius: 7, fontSize: 11,
-                                                        fontWeight: 600, cursor: "pointer", fontFamily: "inherit",
-                                                    }}
-                                                >Cancel</button>
-                                            </div>
-                                        </div>
-                                    ) : (
-                                        /* ── Read view ── */
-                                        <>
-                                            <div style={{
-                                                background: "#fff", border: "1px solid #ede9fe", borderRadius: 8,
-                                                padding: "7px 10px", marginBottom: 6,
-                                            }}>
-                                                <p style={{ margin: 0, fontSize: 11, color: "#4b5563", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
-                                                    {todo.task}
-                                                </p>
-                                            </div>
-                                            <div style={{ display: "flex", gap: 5 }}>
-                                                <button
-                                                    onClick={e => { e.stopPropagation(); startEdit(todo); }}
-                                                    style={{
-                                                        display: "flex", alignItems: "center", gap: 4,
-                                                        background: "none", border: "1px solid #ddd6fe", borderRadius: 6,
-                                                        color: "#7c3aed", fontSize: 11, fontWeight: 600, cursor: "pointer",
-                                                        padding: "4px 9px", fontFamily: "inherit",
-                                                    }}
-                                                >
-                                                    <Icon path={Icons.edit} size={11} color="#7c3aed" />
-                                                    Edit
-                                                </button>
-                                                <button
-                                                    onClick={e => { e.stopPropagation(); deleteTodo(todo.id); }}
-                                                    style={{
-                                                        display: "flex", alignItems: "center", gap: 4,
-                                                        background: "none", border: "1px solid #fee2e2", borderRadius: 6,
-                                                        color: "#ef4444", fontSize: 11, fontWeight: 600, cursor: "pointer",
-                                                        padding: "4px 9px", fontFamily: "inherit",
-                                                    }}
-                                                >
-                                                    <Icon path={Icons.trash} size={11} color="#ef4444" />
-                                                    Delete
-                                                </button>
-                                            </div>
-                                        </>
-                                    )}
-                                </div>
-                            </ExpandPanel>
-                        </div>
-                    );
-                })}
-            </div>
-
-            {/* Add new task */}
-            <div style={{ padding: "7px 12px 10px", borderTop: "1.5px solid #f5f5f7" }}>
+                <p style={{ margin: 0, fontSize: 12, fontWeight: 700, color: "#1f2937" }}>
+                    Login to manage tasks
+                </p>
+                <p style={{ margin: 0, fontSize: 11, color: "#9ca3af", textAlign: "center" }}>
+                    Sign in to add, edit and track your tasks
+                </p>
                 <button
-                    onClick={() => { setShowForm(f => !f); if (minimized) setMin(false); }}
+                    onClick={() => navigate("/login")}
                     style={{
-                        display: "flex", alignItems: "center", gap: 5, background: "none",
-                        border: "none", cursor: "pointer", color: "#7c3aed",
-                        fontSize: 12, fontWeight: 700, padding: 0, fontFamily: "inherit",
+                        marginTop: 4, padding: "8px 22px", background: "#7c3aed", color: "#fff",
+                        border: "none", borderRadius: 9, fontSize: 12, fontWeight: 700,
+                        cursor: "pointer", fontFamily: "inherit",
                     }}
                 >
-                    <Icon path={Icons.plus} size={14} color="#7c3aed" strokeWidth={2.5} />
-                    Add new task
+                    Login
                 </button>
             </div>
-        </div>
-    );
+        );
+        return (
+            <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
 
-    /* ══════════ HEADER — also called as a function ══════════ */
+                {/* Search */}
+                <div style={{ padding: "8px 12px 0" }}>
+                    <div style={{
+                        display: "flex", alignItems: "center", gap: 7,
+                        background: "#f5f5f7", borderRadius: 10, padding: "7px 11px",
+                    }}>
+                        <Icon path={Icons.search} size={13} color="#9ca3af" />
+                        <input type="text" value={search} onChange={e => setSearch(e.target.value)}
+                            placeholder="Search tasks..."
+                            style={{
+                                flex: 1, border: "none", background: "transparent", outline: "none",
+                                fontSize: 12, color: "#374151", fontFamily: "inherit",
+                            }}
+                        />
+                    </div>
+                </div>
+
+                {/* Filter tabs */}
+                <div style={{ display: "flex", padding: "6px 12px 0", borderBottom: "1.5px solid #f0f0f0" }}>
+                    {["all", "todo", "done"].map(tab => {
+                        const label = tab === "all" ? "All" : tab === "todo" ? "To Do" : "Done";
+                        const active = filter === tab;
+                        return (
+                            <button key={tab} onClick={() => setFilter(tab)} style={{
+                                display: "flex", alignItems: "center", gap: 5,
+                                padding: "5px 10px", background: "none", border: "none", cursor: "pointer",
+                                fontSize: 11, fontWeight: active ? 700 : 500,
+                                color: active ? "#7c3aed" : "#9ca3af",
+                                borderBottom: active ? "2px solid #7c3aed" : "2px solid transparent",
+                                marginBottom: -1.5, transition: "all .14s",
+                            }}>
+                                {label}
+                                <span style={{
+                                    fontSize: 10, fontWeight: 700, minWidth: 16, height: 16,
+                                    display: "flex", alignItems: "center", justifyContent: "center",
+                                    borderRadius: 8, padding: "0 4px",
+                                    background: active ? "#ede9fe" : "#f3f4f6",
+                                    color: active ? "#7c3aed" : "#9ca3af",
+                                }}>{counts[tab]}</span>
+                            </button>
+                        );
+                    })}
+                </div>
+
+                {/* Add form */}
+                {showForm && (
+                    <div style={{ padding: "8px 12px", borderBottom: "1px solid #f0f0f0", display: "flex", flexDirection: "column", gap: 6 }}>
+                        {/* ── ref-based focus instead of autoFocus ── */}
+                        <input
+                            ref={nameInputRef}
+                            type="text"
+                            value={input.name}
+                            onChange={e => setInput(p => ({ ...p, name: e.target.value }))}
+                            placeholder="Task title"
+                            style={{
+                                width: "100%", boxSizing: "border-box", fontSize: 12, padding: "7px 11px",
+                                background: "#f9fafb", border: "1.5px solid #e5e7eb", borderRadius: 9,
+                                outline: "none", fontFamily: "inherit", color: "#1f2937",
+                            }}
+                            onFocus={e => e.target.style.borderColor = "#7c3aed"}
+                            onBlur={e => e.target.style.borderColor = "#e5e7eb"}
+                        />
+                        <textarea rows={2} value={input.task}
+                            onChange={e => setInput(p => ({ ...p, task: e.target.value }))}
+                            onKeyDown={e => e.key === "Enter" && !e.shiftKey && addTodo()}
+                            placeholder="Description…"
+                            style={{
+                                width: "100%", boxSizing: "border-box", fontSize: 12, padding: "7px 11px",
+                                background: "#f9fafb", border: "1.5px solid #e5e7eb", borderRadius: 9,
+                                outline: "none", fontFamily: "inherit", color: "#1f2937", resize: "none",
+                            }}
+                            onFocus={e => e.target.style.borderColor = "#7c3aed"}
+                            onBlur={e => e.target.style.borderColor = "#e5e7eb"}
+                        />
+                        <div style={{ display: "flex", gap: 6 }}>
+                            <button onClick={addTodo} disabled={adding} style={{
+                                flex: 1, padding: "7px 0", background: "#7c3aed", color: "#fff",
+                                border: "none", borderRadius: 9, fontSize: 12, fontWeight: 700,
+                                cursor: "pointer", opacity: adding ? .6 : 1, fontFamily: "inherit",
+                            }}>{adding ? "Adding…" : "Add task"}</button>
+                            <button onClick={() => { setShowForm(false); setInput({ name: "", task: "" }); }} style={{
+                                flex: 1, padding: "7px 0", background: "#fff", color: "#6b7280",
+                                border: "1.5px solid #e5e7eb", borderRadius: 9, fontSize: 12,
+                                fontWeight: 600, cursor: "pointer", fontFamily: "inherit",
+                            }}>Cancel</button>
+                        </div>
+                    </div>
+                )}
+
+                {/* List */}
+                <div style={{ flex: 1, overflowY: "auto", padding: "4px 8px" }}>
+                    {loading && (
+                        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", padding: "28px 0", gap: 8 }}>
+                            <style>{`@keyframes _spin{to{transform:rotate(360deg)}}`}</style>
+                            <div style={{
+                                width: 18, height: 18, border: "2px solid #ddd8fc", borderTopColor: "#7c3aed",
+                                borderRadius: "50%", animation: "_spin .7s linear infinite",
+                            }} />
+                            <p style={{ fontSize: 11, color: "#9ca3af", margin: 0 }}>Loading…</p>
+                        </div>
+                    )}
+                    {!loading && filtered.length === 0 && (
+                        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", padding: "28px 0", gap: 6 }}>
+                            <div style={{
+                                width: 34, height: 34, borderRadius: 11, background: "#ede9fe",
+                                display: "flex", alignItems: "center", justifyContent: "center",
+                            }}>
+                                <Icon path={Icons.check} size={16} color="#7c3aed" />
+                            </div>
+                            <p style={{ fontSize: 11, fontWeight: 600, color: "#9ca3af", margin: 0 }}>
+                                {search ? "No results" : "No tasks yet"}
+                            </p>
+                        </div>
+                    )}
+                    {filtered.map(todo => {
+                        const isExp = expanded === todo.id;
+                        const isStar = starred.has(todo.id);
+                        return (
+                            <div key={todo.id} style={{
+                                borderRadius: 10, margin: "3px 0",
+                                background: isExp ? "#faf8ff" : "#fff",
+                                border: `1.5px solid ${isExp ? "#ddd6fe" : "#f3f4f6"}`,
+                                transition: "border-color .18s, background .18s",
+                                overflow: "hidden",
+                            }}>
+                                <div
+                                    style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 10px", cursor: "pointer" }}
+                                    onClick={() => setExpanded(isExp ? null : todo.id)}
+                                >
+                                    <button onClick={e => { e.stopPropagation(); toggleTodo(todo); }} style={{
+                                        width: 17, height: 17, borderRadius: 5, flexShrink: 0,
+                                        border: todo.is_completed ? "none" : "2px solid #d1d5db",
+                                        background: todo.is_completed ? "#7c3aed" : "transparent",
+                                        display: "flex", alignItems: "center", justifyContent: "center",
+                                        cursor: "pointer", padding: 0, transition: "all .13s",
+                                        boxShadow: todo.is_completed ? "0 2px 5px rgba(124,58,237,.28)" : "none",
+                                    }}>
+                                        {todo.is_completed && (
+                                            <svg width={8} height={8} viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth={3.5} strokeLinecap="round">
+                                                <path d="M5 13l4 4L19 7" />
+                                            </svg>
+                                        )}
+                                    </button>
+
+                                    <div style={{ flex: 1, minWidth: 0 }}>
+                                        <p style={{
+                                            margin: 0, fontSize: 12, fontWeight: 600,
+                                            color: todo.is_completed ? "#9ca3af" : "#1f2937",
+                                            textDecoration: todo.is_completed ? "line-through" : "none",
+                                            whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+                                        }}>{todo.name}</p>
+                                        {!isExp && (
+                                            <p style={{
+                                                margin: "1px 0 0", fontSize: 10, color: "#9ca3af",
+                                                textDecoration: todo.is_completed ? "line-through" : "none",
+                                                whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+                                            }}>{todo.task}</p>
+                                        )}
+                                    </div>
+
+                                    <Badge done={todo.is_completed} />
+
+                                    <button onClick={e => { e.stopPropagation(); toggleStar(todo.id); }} style={{
+                                        background: "none", border: "none", cursor: "pointer",
+                                        padding: 2, display: "flex", alignItems: "center", borderRadius: 5,
+                                    }}>
+                                        <Icon path={Icons.star} size={13}
+                                            color={isStar ? "#f59e0b" : "#d1d5db"}
+                                            fill={isStar ? "#f59e0b" : "none"}
+                                            strokeWidth={isStar ? 0 : 2}
+                                        />
+                                    </button>
+
+                                    {/* Animated chevron */}
+                                    <div style={{
+                                        transition: "transform 0.13s cubic-bezier(0.4,0,0.2,1)",
+                                        transform: isExp ? "rotate(180deg)" : "rotate(0deg)",
+                                        display: "flex", alignItems: "center",
+                                    }}>
+                                        <Icon path={Icons.chevDown} size={12} color="#a78bfa" />
+                                    </div>
+                                </div>
+
+                                {/* ── Smooth expand panel ── */}
+                                <ExpandPanel open={isExp}>
+                                    <div style={{ padding: "0 10px 9px 10px" }}>
+                                        {editing === todo.id ? (
+                                            /* ── Edit form ── */
+                                            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                                                <input
+                                                    value={editInput.name}
+                                                    onChange={e => setEditInput(p => ({ ...p, name: e.target.value }))}
+                                                    placeholder="Task title"
+                                                    style={{
+                                                        width: "100%", boxSizing: "border-box", fontSize: 12,
+                                                        padding: "7px 10px", background: "#f9fafb",
+                                                        border: "1.5px solid #7c3aed", borderRadius: 8,
+                                                        outline: "none", fontFamily: "inherit", color: "#1f2937",
+                                                    }}
+                                                    onFocus={e => e.target.style.borderColor = "#7c3aed"}
+                                                    onBlur={e => e.target.style.borderColor = "#ddd6fe"}
+                                                />
+                                                <textarea
+                                                    rows={3}
+                                                    value={editInput.task}
+                                                    onChange={e => setEditInput(p => ({ ...p, task: e.target.value }))}
+                                                    onKeyDown={e => e.key === "Enter" && e.ctrlKey && updateTodo(todo.id)}
+                                                    placeholder="Description…"
+                                                    style={{
+                                                        width: "100%", boxSizing: "border-box", fontSize: 11,
+                                                        padding: "7px 10px", background: "#f9fafb",
+                                                        border: "1.5px solid #ddd6fe", borderRadius: 8,
+                                                        outline: "none", fontFamily: "inherit", color: "#1f2937",
+                                                        resize: "vertical", lineHeight: 1.6,
+                                                    }}
+                                                    onFocus={e => e.target.style.borderColor = "#7c3aed"}
+                                                    onBlur={e => e.target.style.borderColor = "#ddd6fe"}
+                                                />
+                                                <div style={{ display: "flex", gap: 5 }}>
+                                                    <button
+                                                        onClick={e => { e.stopPropagation(); updateTodo(todo.id); }}
+                                                        disabled={savingEdit}
+                                                        style={{
+                                                            flex: 1, padding: "6px 0", background: "#7c3aed", color: "#fff",
+                                                            border: "none", borderRadius: 7, fontSize: 11, fontWeight: 700,
+                                                            cursor: "pointer", opacity: savingEdit ? .6 : 1, fontFamily: "inherit",
+                                                        }}
+                                                    >{savingEdit ? "Saving…" : "Save"}</button>
+                                                    <button
+                                                        onClick={e => { e.stopPropagation(); cancelEdit(); }}
+                                                        style={{
+                                                            flex: 1, padding: "6px 0", background: "#fff", color: "#6b7280",
+                                                            border: "1.5px solid #e5e7eb", borderRadius: 7, fontSize: 11,
+                                                            fontWeight: 600, cursor: "pointer", fontFamily: "inherit",
+                                                        }}
+                                                    >Cancel</button>
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            /* ── Read view ── */
+                                            <>
+                                                <div style={{
+                                                    background: "#fff", border: "1px solid #ede9fe", borderRadius: 8,
+                                                    padding: "7px 10px", marginBottom: 6,
+                                                }}>
+                                                    <p style={{ margin: 0, fontSize: 11, color: "#4b5563", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
+                                                        {todo.task}
+                                                    </p>
+                                                </div>
+                                                <div style={{ display: "flex", gap: 5 }}>
+                                                    <button
+                                                        onClick={e => { e.stopPropagation(); startEdit(todo); }}
+                                                        style={{
+                                                            display: "flex", alignItems: "center", gap: 4,
+                                                            background: "none", border: "1px solid #ddd6fe", borderRadius: 6,
+                                                            color: "#7c3aed", fontSize: 11, fontWeight: 600, cursor: "pointer",
+                                                            padding: "4px 9px", fontFamily: "inherit",
+                                                        }}
+                                                    >
+                                                        <Icon path={Icons.edit} size={11} color="#7c3aed" />
+                                                        Edit
+                                                    </button>
+                                                    <button
+                                                        onClick={e => { e.stopPropagation(); deleteTodo(todo.id); }}
+                                                        style={{
+                                                            display: "flex", alignItems: "center", gap: 4,
+                                                            background: "none", border: "1px solid #fee2e2", borderRadius: 6,
+                                                            color: "#ef4444", fontSize: 11, fontWeight: 600, cursor: "pointer",
+                                                            padding: "4px 9px", fontFamily: "inherit",
+                                                        }}
+                                                    >
+                                                        <Icon path={Icons.trash} size={11} color="#ef4444" />
+                                                        Delete
+                                                    </button>
+                                                </div>
+                                            </>
+                                        )}
+                                    </div>
+                                </ExpandPanel>
+                            </div>
+                        );
+                    })}
+                </div>
+
+                {/* Add new task */}
+                <div style={{ padding: "7px 12px 10px", borderTop: "1.5px solid #f5f5f7" }}>
+                    <button
+                        onClick={() => { setShowForm(f => !f); if (minimized) setMin(false); }}
+                        style={{
+                            display: "flex", alignItems: "center", gap: 5, background: "none",
+                            border: "none", cursor: "pointer", color: "#7c3aed",
+                            fontSize: 12, fontWeight: 700, padding: 0, fontFamily: "inherit",
+                        }}
+                    >
+                        <Icon path={Icons.plus} size={14} color="#7c3aed" strokeWidth={2.5} />
+                        Add new task
+                    </button>
+                </div>
+            </div>
+        )
+    };
+
     const renderHeader = ({ draggable }) => (
         <div
             onMouseDown={draggable ? onHeaderMouseDown : undefined}
@@ -607,7 +643,11 @@ export default function Todo() {
 
             {!isSheet ? (
                 <button
-                    onClick={() => { setShowForm(f => !f); if (minimized) setMin(false); }}
+                    onClick={() => {
+                        if (!user) return navigate("/login");
+                        setShowForm(f => !f);
+                        if (minimized) setMin(false);
+                    }}
                     title="Add task"
                     style={{
                         width: 26, height: 26, borderRadius: 7, border: "none",
@@ -631,7 +671,6 @@ export default function Todo() {
         </div>
     );
 
-    /* ── Header event handlers (must be defined before renderHeader is called) ── */
     const onHeaderMouseDown = (e) => {
         if (e.button !== 0) return;
         if (e.target.closest("button")) return;
@@ -648,7 +687,6 @@ export default function Todo() {
         startDrag(t.clientX, t.clientY);
     };
 
-    /* ══════════ MOBILE SHEET ══════════ */
     if (isSheet) return (
         <>
             {!sheetOpen && (
@@ -692,18 +730,15 @@ export default function Todo() {
         </>
     );
 
-    /* ══════════ DESKTOP WIDGET ══════════ */
-    // Use a fixed pixel height for minimized so CSS transition works
-    // (CSS can't transition to/from "auto")
     const HEADER_H = 44;
-    const targetH = minimized ? HEADER_H : sizeRef.current.h;
-    const targetW = minimized ? 230 : sizeRef.current.w;
+    const targetH = minimized ? HEADER_H : size.h;
+    const targetW = minimized ? 230 : size.w;
 
     return (
         <div ref={boxRef} style={{
             position: "fixed",
-            left: posRef.current.x,
-            top: posRef.current.y,
+            left: pos.x,
+            top: pos.y,
             width: targetW,
             height: targetH,
             zIndex: 9999,
@@ -714,14 +749,12 @@ export default function Todo() {
             borderRadius: 14,
             boxShadow: "0 6px 28px rgba(124,58,237,.09), 0 1.5px 5px rgba(0,0,0,.05)",
             overflow: "hidden",
-            // Animate height/width on minimize toggle; skip during drag/resize
-            transition: resize.current.active || drag.current.active
+            transition: isDraggingOrResizing
                 ? "none"
                 : "height 0.26s cubic-bezier(0.4,0,0.2,1), width 0.22s cubic-bezier(0.4,0,0.2,1)",
         }}>
             {renderHeader({ draggable: true })}
 
-            {/* Body always stays in DOM — container height clips it during minimize */}
             <div style={{
                 display: "flex", flexDirection: "column", flex: 1, minHeight: 0,
                 opacity: minimized ? 0 : 1,
@@ -733,7 +766,6 @@ export default function Todo() {
                 {renderBody()}
             </div>
 
-            {/* Resize handle */}
             {!minimized && (
                 <div
                     onMouseDown={e => { e.preventDefault(); e.stopPropagation(); startResize(e.clientX, e.clientY); }}

@@ -8,7 +8,7 @@ export default defineConfig({
   server: {
     proxy: {
       "/v1": {
-        target: "https://bobo-y3hg.onrender.com",
+        target: "https://api.falseidea.com",
         changeOrigin: true,
         secure: false,
       },
