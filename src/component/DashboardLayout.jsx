@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { Outlet, useNavigate, useLocation } from "react-router-dom";
 import Todo from "./Todo";
 import { API_BASE } from "../api";
-
+import { useUser } from "../utils/UserContext";
 const Icon = ({ d, size = 20 }) => (
     <svg
         width={size}
@@ -85,10 +85,18 @@ const LockedButton = ({ icon, label, onClick }) => {
 
 const DashboardLayout = () => {
     const navigate = useNavigate();
-
-    const [user, setUser] = useState(null);
     const [profileModalOpen, setProfileModalOpen] = useState(false);
     const profileRef = useRef(null);
+    const { isAuth } = useUser();
+    const [profile, setProfile] = useState(null);
+
+    useEffect(() => {
+        if (!isAuth) return;
+        fetch(`${API_BASE}/v1/user/profile`, { credentials: "include" })
+            .then((r) => r.json())
+            .then((d) => { if (d.status) setProfile(d.data); })
+            .catch(() => { });
+    }, [isAuth]);
 
     // Inject Nunito font
     useEffect(() => {
@@ -99,12 +107,7 @@ const DashboardLayout = () => {
         return () => { try { document.head.removeChild(link); } catch { } };
     }, []);
 
-    useEffect(() => {
-        fetch(`${API_BASE}/v1/user/profile`, { credentials: "include" })
-            .then((r) => r.json())
-            .then((d) => { if (d.status) setUser(d.data); })
-            .catch(() => { });
-    }, []);
+
 
     useEffect(() => {
         const handleClick = (e) => {
@@ -138,17 +141,17 @@ const DashboardLayout = () => {
                         <LockedButton
                             icon={icons.newFile}
                             label="New"
-                            onClick={!user ? () => navigate("/login") : null}
+                            onClick={!isAuth ? () => navigate("/login") : null}
                         />
                         <LockedButton
                             icon={icons.share}
                             label="Share"
-                            onClick={!user ? () => navigate("/login") : null}
+                            onClick={!isAuth ? () => navigate("/login") : null}
                         />
                     </div>
 
                     <div className="shrink-0 relative" ref={profileRef}>
-                        {!user ? (
+                        {!isAuth ? (
                             <button
                                 onClick={() => navigate("/login")}
                                 className="flex items-center gap-1.5 px-4 py-1.5 rounded-2xl border border-gray-200 hover:border-violet-300 hover:bg-violet-50 transition-all duration-150 shadow-sm text-xs font-semibold text-gray-600 hover:text-violet-600"
@@ -162,11 +165,11 @@ const DashboardLayout = () => {
                                 className="flex items-center gap-2 pl-1 pr-2.5 py-1 rounded-2xl border border-gray-100 hover:border-gray-200 hover:bg-gray-50 transition-all duration-150 shadow-sm"
                             >
                                 <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-violet-400 to-violet-600 flex items-center justify-center text-xs font-bold text-white shrink-0 shadow-sm">
-                                    {user?.username?.[0]?.toUpperCase()}
+                                    {profile?.username?.[0]?.toUpperCase()}
                                 </div>
-                                {user?.username && (
+                                {profile?.username && (
                                     <span className="hidden sm:block text-xs font-semibold text-gray-700 max-w-[80px] truncate">
-                                        {user.username}
+                                        {profile.username}
                                     </span>
                                 )}
                                 <svg
@@ -180,18 +183,18 @@ const DashboardLayout = () => {
                         )}
 
                         {/* Dropdown — only shown when user exists */}
-                        {user && profileModalOpen && (
+                        {isAuth && profileModalOpen && (
                             <div className="absolute right-0 top-full mt-2 w-52 bg-white rounded-2xl shadow-lg border border-gray-100 py-2 z-50">
                                 <div className="flex items-center gap-2.5 px-4 py-3 border-b border-gray-100">
                                     <div className="w-9 h-9 rounded-full bg-violet-100 flex items-center justify-center text-sm font-bold text-violet-700 shrink-0">
-                                        {user?.username?.[0]?.toUpperCase()}
+                                        {profile?.username?.[0]?.toUpperCase()}
                                     </div>
                                     <div className="overflow-hidden">
                                         <p className="text-xs font-semibold text-gray-800 truncate">
-                                            {user?.username}
+                                            {profile?.username}
                                         </p>
                                         <p className="text-[11px] text-gray-400 truncate">
-                                            {user?.email || ""}
+                                            {profile?.email || ""}
                                         </p>
                                     </div>
                                 </div>

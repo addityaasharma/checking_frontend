@@ -15,15 +15,15 @@ import Render from "./component/Render";
 import { UserProvider, useUser } from "./utils/UserContext";
 
 const PrivateRoute = () => {
-  const { user, loading } = useUser();
+  const { isAuth, loading } = useUser();
   if (loading) return <Render />;
-  return user ? <Outlet /> : <Navigate to="/login" replace />;
+  return isAuth ? <Outlet /> : <Navigate to="/login" replace />;
 };
 
 const PublicRoute = () => {
-  const { user, loading } = useUser();
+  const { isAuth, loading } = useUser();
   if (loading) return <Render />;
-  return user ? <Navigate to="/creatives" replace /> : <Outlet />;
+  return isAuth ? <Navigate to="/creatives" replace /> : <Outlet />;
 };
 
 const AppRoutes = () => {

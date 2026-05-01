@@ -73,7 +73,7 @@ export default function Todo() {
     const [editInput, setEditInput] = useState({ name: "", task: "" });
     const [savingEdit, setSavingEdit] = useState(false);
     const [, tick] = useState(0);
-    const { user } = useUser();
+    const { isAuth } = useUser();
     const navigate = useNavigate();
 
     const nameInputRef = useRef(null);
@@ -121,7 +121,10 @@ export default function Todo() {
         } catch { }
         finally { setLoading(false); }
     };
-    useEffect(() => { fetchTodos(); }, []);
+    useEffect(() => {
+        if (isAuth) fetchTodos();
+        else setLoading(false);
+    }, [isAuth]);
 
 
     useEffect(() => {
@@ -182,12 +185,12 @@ export default function Todo() {
     const startDrag = (cx, cy) => {
         didMove.current = false;
         drag.current = { active: true, ox: cx - posRef.current.x, oy: cy - posRef.current.y };
-        setIsDraggingOrResizing(true); 
+        setIsDraggingOrResizing(true);
     };
 
     const startResize = (cx, cy) => {
         resize.current = { active: true, ox: cx, oy: cy, ow: sizeRef.current.w, oh: sizeRef.current.h };
-        setIsDraggingOrResizing(true); 
+        setIsDraggingOrResizing(true);
     };
 
     const addTodo = async () => {
@@ -273,7 +276,7 @@ export default function Todo() {
     );
 
     const renderBody = () => {
-        if (!user) return (
+        if (!isAuth) return (
             <div style={{
                 display: "flex", flexDirection: "column", alignItems: "center",
                 justifyContent: "center", flex: 1, gap: 10, padding: "28px 20px",
@@ -644,7 +647,7 @@ export default function Todo() {
             {!isSheet ? (
                 <button
                     onClick={() => {
-                        if (!user) return navigate("/login");
+                        if (!isAuth) return navigate("/login");
                         setShowForm(f => !f);
                         if (minimized) setMin(false);
                     }}
