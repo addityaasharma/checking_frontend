@@ -21,8 +21,12 @@ const ARROW_ENDS = ['none', 'arrow', 'filled', 'circle']
 const VANISH_DURATION = 300
 const VANISH_FADE = 100
 
+// Tools that support smart hover-connectors
+const CONNECTABLE_TOOLS = ['rect', 'circle', 'diamond', 'shape']
+
 const isMobile = () => window.innerWidth < 640
 
+// ─── Shape path helpers ───────────────────────────────────────────────────────
 function shapePath(type, x, y, w, h) {
     switch (type) {
         case 'rect': return null
@@ -60,7 +64,47 @@ function shapePath(type, x, y, w, h) {
     }
 }
 
-function drawElement(ctx, el, selected, panX, panY, zoom) {
+// ─── Anchor points on a shape (4 sides) ──────────────────────────────────────
+function getAnchors(el) {
+    const b = getElementBounds(el)
+    return [
+        { side: 'top', x: b.x + b.w / 2, y: b.y },
+        { side: 'bottom', x: b.x + b.w / 2, y: b.y + b.h },
+        { side: 'left', x: b.x, y: b.y + b.h / 2 },
+        { side: 'right', x: b.x + b.w, y: b.y + b.h / 2 },
+    ]
+}
+
+function getShapeEdgePoint(el, side) {
+    return getAnchors(el).find(a => a.side === side) || getAnchors(el)[0]
+}
+
+// ─── Connector bezier path computation ────────────────────────────────────────
+function getConnectorCurve(el, elements) {
+    let x1 = el.x1, y1 = el.y1, x2 = el.x2, y2 = el.y2
+    if (el.fromId) {
+        const src = elements.find(e => e.id === el.fromId)
+        if (src) { const a = getShapeEdgePoint(src, el.fromSide); x1 = a.x; y1 = a.y }
+    }
+    if (el.toId) {
+        const dst = elements.find(e => e.id === el.toId)
+        if (dst) { const a = getShapeEdgePoint(dst, el.toSide); x2 = a.x; y2 = a.y }
+    }
+    const BEND = 60
+    const getBend = (side, x, y) => {
+        if (side === 'right') return [x + BEND, y]
+        if (side === 'left') return [x - BEND, y]
+        if (side === 'bottom') return [x, y + BEND]
+        if (side === 'top') return [x, y - BEND]
+        return [x, y]
+    }
+    const [c1x, c1y] = getBend(el.fromSide || 'right', x1, y1)
+    const [c2x, c2y] = getBend(el.toSide || 'left', x2, y2)
+    return { x1, y1, x2, y2, c1x, c1y, c2x, c2y }
+}
+
+// ─── Draw element ─────────────────────────────────────────────────────────────
+function drawElement(ctx, el, selected, panX, panY, zoom, allElements) {
     ctx.save()
     ctx.translate(panX, panY)
     ctx.scale(zoom, zoom)
@@ -109,10 +153,7 @@ function drawElement(ctx, el, selected, panX, panY, zoom) {
     }
 
     if (tool === 'pencil' || tool === 'eraser' || tool === 'pen' || tool === 'highlighter') {
-        if (tool === 'highlighter') {
-            ctx.globalAlpha = 0.35
-            ctx.lineWidth = (size || 3) * 6
-        }
+        if (tool === 'highlighter') { ctx.globalAlpha = 0.35; ctx.lineWidth = (size || 3) * 6 }
         const pts = el.points || []
         if (pts.length < 2) { ctx.restore(); return }
         ctx.beginPath()
@@ -128,6 +169,34 @@ function drawElement(ctx, el, selected, panX, panY, zoom) {
             ctx.lineTo(pts[pts.length - 1][0], pts[pts.length - 1][1])
         }
         ctx.stroke()
+
+    } else if (tool === 'connector') {
+        // ── Smart bezier connector ──
+        const { x1, y1, x2, y2, c1x, c1y, c2x, c2y } = getConnectorCurve(el, allElements || [])
+        ctx.strokeStyle = color || '#457b9d'
+        ctx.lineWidth = size || 2
+        const dashStyle = el.arrowStyle === 'dashed' ? [8, 5] : el.arrowStyle === 'dotted' ? [2, 5] : []
+        ctx.setLineDash(dashStyle)
+        ctx.beginPath()
+        ctx.moveTo(x1, y1)
+        ctx.bezierCurveTo(c1x, c1y, c2x, c2y, x2, y2)
+        ctx.stroke()
+        ctx.setLineDash([])
+        // arrowhead at end
+        const dx = x2 - c2x, dy = y2 - c2y
+        const len = Math.sqrt(dx * dx + dy * dy)
+        if (len > 1) {
+            const nx = dx / len, ny = dy / len
+            const hs = Math.max(12, (size || 2) * 4)
+            ctx.beginPath()
+            ctx.moveTo(x2, y2)
+            ctx.lineTo(x2 - nx * hs + ny * hs * 0.4, y2 - ny * hs - nx * hs * 0.4)
+            ctx.lineTo(x2 - nx * hs - ny * hs * 0.4, y2 - ny * hs + nx * hs * 0.4)
+            ctx.closePath()
+            ctx.fillStyle = color || '#457b9d'
+            ctx.fill()
+        }
+
     } else if (tool === 'line' || tool === 'arrow' || tool === 'dashed-arrow' || tool === 'double-arrow') {
         const dashStyle = el.arrowStyle === 'dashed' ? [8, 5] : el.arrowStyle === 'dotted' ? [2, 5] : []
         ctx.setLineDash(dashStyle)
@@ -143,10 +212,8 @@ function drawElement(ctx, el, selected, panX, panY, zoom) {
             const nx = dx / len, ny = dy / len
             const hs = Math.max(12, size * 4)
             if (el.arrowEnd === 'circle') {
-                ctx.beginPath()
-                ctx.arc(x2, y2, hs * 0.4, 0, Math.PI * 2)
-                ctx.fillStyle = color || '#1a1a2e'
-                ctx.fill()
+                ctx.beginPath(); ctx.arc(x2, y2, hs * 0.4, 0, Math.PI * 2)
+                ctx.fillStyle = color || '#1a1a2e'; ctx.fill()
             } else if (el.arrowEnd !== 'none') {
                 ctx.beginPath()
                 ctx.moveTo(x2, y2)
@@ -159,6 +226,7 @@ function drawElement(ctx, el, selected, panX, panY, zoom) {
         }
         if (tool === 'arrow' || tool === 'dashed-arrow') drawHead(el.x2, el.y2, el.x1, el.y1)
         if (tool === 'double-arrow') { drawHead(el.x2, el.y2, el.x1, el.y1); drawHead(el.x1, el.y1, el.x2, el.y2) }
+
     } else if (tool === 'rect') {
         ctx.beginPath()
         const r = el.radius || 0
@@ -168,6 +236,8 @@ function drawElement(ctx, el, selected, panX, panY, zoom) {
         else ctx.rect(x, y, w, h)
         if (el.fill) { ctx.fillStyle = el.fill; ctx.fill() }
         ctx.stroke()
+        drawShapeLabel(ctx, el, x, y, w, h)
+
     } else if (tool === 'circle') {
         const cx = (el.x1 + el.x2) / 2, cy = (el.y1 + el.y2) / 2
         const rx = Math.abs(el.x2 - el.x1) / 2, ry = Math.abs(el.y2 - el.y1) / 2
@@ -175,6 +245,10 @@ function drawElement(ctx, el, selected, panX, panY, zoom) {
         ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2)
         if (el.fill) { ctx.fillStyle = el.fill; ctx.fill() }
         ctx.stroke()
+        const x = Math.min(el.x1, el.x2), y = Math.min(el.y1, el.y2)
+        const w = Math.abs(el.x2 - el.x1), h = Math.abs(el.y2 - el.y1)
+        drawShapeLabel(ctx, el, x, y, w, h)
+
     } else if (tool === 'shape') {
         const x = Math.min(el.x1, el.x2), y = Math.min(el.y1, el.y2)
         const w = Math.abs(el.x2 - el.x1) || 80, h = Math.abs(el.y2 - el.y1) || 60
@@ -192,20 +266,8 @@ function drawElement(ctx, el, selected, panX, panY, zoom) {
             if (el.fill) { ctx.fillStyle = el.fill; ctx.fill() }
             ctx.stroke()
         }
-        if (el.label) {
-            ctx.font = `${el.labelSize || 14}px ${el.labelFont || "'DM Sans', sans-serif"}`
-            ctx.fillStyle = el.labelColor || color || '#1a1a2e'
-            ctx.globalAlpha = 1
-            ctx.textAlign = 'center'
-            ctx.textBaseline = 'middle'
-            const lx = x + w / 2, ly = y + h / 2
-            const lines = el.label.split('\n')
-            lines.forEach((ln, i) => {
-                ctx.fillText(ln, lx, ly + (i - (lines.length - 1) / 2) * (el.labelSize || 14) * 1.3)
-            })
-            ctx.textAlign = 'left'
-            ctx.textBaseline = 'alphabetic'
-        }
+        drawShapeLabel(ctx, el, x, y, w, h)
+
     } else if (tool === 'text' || tool === 'sticky') {
         const fs = el.fontSize || 18
         const font = el.font || "'Kalam', cursive"
@@ -230,6 +292,7 @@ function drawElement(ctx, el, selected, panX, panY, zoom) {
             const lines = (el.text || '').split('\n')
             lines.forEach((ln, i) => ctx.fillText(ln, el.x1, el.y1 + i * fs * 1.35))
         }
+
     } else if (tool === 'image' && el.img) {
         const x = Math.min(el.x1, el.x2), y = Math.min(el.y1, el.y2)
         const w = Math.abs(el.x2 - el.x1) || el.img.naturalWidth || 200
@@ -261,6 +324,104 @@ function drawElement(ctx, el, selected, panX, panY, zoom) {
     ctx.restore()
 }
 
+// ─── Draw inline label centered in shape ──────────────────────────────────────
+function drawShapeLabel(ctx, el, x, y, w, h) {
+    const label = el.label
+    if (!label) return
+    ctx.save()
+    ctx.globalAlpha = 1
+    ctx.globalCompositeOperation = 'source-over'
+    const fs = el.labelSize || 14
+    const font = el.labelFont || "'DM Sans', sans-serif"
+    ctx.font = `${fs}px ${font}`
+    ctx.fillStyle = el.labelColor || el.color || '#1a1a2e'
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    const lines = label.split('\n')
+    const lh = fs * 1.3
+    lines.forEach((ln, i) => {
+        const ty = y + h / 2 + (i - (lines.length - 1) / 2) * lh
+        ctx.fillText(ln, x + w / 2, ty)
+    })
+    ctx.textAlign = 'left'
+    ctx.textBaseline = 'alphabetic'
+    ctx.restore()
+}
+
+// ─── Draw hover connector dots on shape edges ─────────────────────────────────
+function drawHoverConnectors(ctx, el, panX, panY, zoom) {
+    if (!el || !CONNECTABLE_TOOLS.includes(el.tool)) return
+    const anchors = getAnchors(el)
+    ctx.save()
+    ctx.translate(panX, panY)
+    ctx.scale(zoom, zoom)
+    anchors.forEach(a => {
+        ctx.beginPath()
+        ctx.arc(a.x, a.y, 10, 0, Math.PI * 2)
+        ctx.fillStyle = '#6366f1'
+        ctx.globalAlpha = 0.85
+        ctx.fill()
+        ctx.globalAlpha = 1
+        ctx.strokeStyle = '#ffffff'
+        ctx.lineWidth = 1.5
+        const offsets = { top: [0, -1], bottom: [0, 1], left: [-1, 0], right: [1, 0] }
+        const [ox, oy] = offsets[a.side] || [0, -1]
+        ctx.beginPath()
+        ctx.moveTo(a.x - ox * 3 - oy * 3, a.y - oy * 3 + ox * 3)
+        ctx.lineTo(a.x + ox * 5, a.y + oy * 5)
+        ctx.lineTo(a.x - ox * 3 + oy * 3, a.y - oy * 3 - ox * 3)
+        ctx.stroke()
+    })
+    ctx.restore()
+}
+
+// ─── Draw clone preview (dashed ghost shape + line) ──────────────────────────
+function drawClonePreview(ctx, el, side, panX, panY, zoom) {
+    if (!el) return
+    const b = getElementBounds(el)
+    const a = getAnchors(el).find(x => x.side === side)
+    if (!a) return
+    const DIST = 100
+    const offsets = { top: [0, -DIST], bottom: [0, DIST], left: [-DIST, 0], right: [DIST, 0] }
+    const [ox, oy] = offsets[side] || [DIST, 0]
+    ctx.save()
+    ctx.translate(panX, panY)
+    ctx.scale(zoom, zoom)
+    // dashed line from anchor
+    ctx.strokeStyle = '#6366f1'
+    ctx.lineWidth = 1.5
+    ctx.setLineDash([5, 4])
+    ctx.beginPath()
+    ctx.moveTo(a.x, a.y)
+    ctx.lineTo(a.x + ox / 2, a.y + oy / 2)
+    ctx.stroke()
+    ctx.setLineDash([])
+    // ghost box
+    ctx.strokeStyle = '#6366f1'
+    ctx.lineWidth = 1.5
+    ctx.setLineDash([5, 4])
+    ctx.globalAlpha = 0.45
+    ctx.strokeRect(b.x + ox, b.y + oy, b.w, b.h)
+    ctx.setLineDash([])
+    // + circle at center of ghost
+    const gcx = b.x + ox + b.w / 2, gcy = b.y + oy + b.h / 2
+    ctx.globalAlpha = 0.9
+    ctx.fillStyle = '#6366f1'
+    ctx.beginPath()
+    ctx.arc(gcx, gcy, 10, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.globalAlpha = 1
+    ctx.strokeStyle = '#ffffff'
+    ctx.lineWidth = 2
+    ctx.beginPath()
+    ctx.moveTo(gcx - 5, gcy); ctx.lineTo(gcx + 5, gcy)
+    ctx.stroke()
+    ctx.beginPath()
+    ctx.moveTo(gcx, gcy - 5); ctx.lineTo(gcx, gcy + 5)
+    ctx.stroke()
+    ctx.restore()
+}
+
 function getHandles(b) {
     return [
         [b.x, b.y], [b.x + b.w / 2, b.y], [b.x + b.w, b.y],
@@ -277,6 +438,11 @@ function getElementBounds(el) {
     }
     if (el.tool === 'text') return { x: el.x1, y: el.y1 - 20, w: 180, h: el.fontSize || 18 }
     if (el.tool === 'sticky') return { x: el.x1, y: el.y1, w: el.width || 200, h: el.height || 100 }
+    if (el.tool === 'connector') {
+        // rough bounding box from endpoints only
+        const x = Math.min(el.x1 || 0, el.x2 || 0), y = Math.min(el.y1 || 0, el.y2 || 0)
+        return { x, y, w: Math.max(10, Math.abs((el.x2 || 0) - (el.x1 || 0))), h: Math.max(10, Math.abs((el.y2 || 0) - (el.y1 || 0))) }
+    }
     const x = Math.min(el.x1 || 0, el.x2 || 0), y = Math.min(el.y1 || 0, el.y2 || 0)
     return { x, y, w: Math.max(1, Math.abs((el.x2 || 0) - (el.x1 || 0))), h: Math.max(1, Math.abs((el.y2 || 0) - (el.y1 || 0))) }
 }
@@ -286,16 +452,13 @@ function hitTest(el, px, py) {
     return px >= b.x - 10 && px <= b.x + b.w + 10 && py >= b.y - 10 && py <= b.y + b.h + 10
 }
 
-// Check if an element's bounds are fully or partially inside a marquee rect
 function marqueeHitTest(el, mx, my, mw, mh) {
     const b = getElementBounds(el)
     const rx1 = Math.min(mx, mx + mw), ry1 = Math.min(my, my + mh)
     const rx2 = Math.max(mx, mx + mw), ry2 = Math.max(my, my + mh)
-    // Intersect — element overlaps with selection rect
     return !(b.x + b.w < rx1 || b.x > rx2 || b.y + b.h < ry1 || b.y > ry2)
 }
 
-// Draw the marching-ants marquee selection rectangle
 function drawMarquee(ctx, sx, sy, sw, sh, panX, panY, zoom) {
     ctx.save()
     ctx.translate(panX, panY)
@@ -311,7 +474,12 @@ function drawMarquee(ctx, sx, sy, sw, sh, panX, panY, zoom) {
     ctx.restore()
 }
 
-const Icon = ({ d, size = 16 }) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d={d} /></svg>
+// ─── Icon helper ──────────────────────────────────────────────────────────────
+const Icon = ({ d, size = 16 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d={d} />
+    </svg>
+)
 
 const icons = {
     pencil: 'M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z',
@@ -320,8 +488,10 @@ const icons = {
     eraser: 'M20 20H7L3 16l13.3-13.3a1 1 0 0 1 1.4 0l4.3 4.3a1 1 0 0 1 0 1.4L9.4 17',
     line: 'M5 19L19 5',
     arrow: 'M5 12h14M12 5l7 7-7 7',
+    connector: 'M8 6a2 2 0 1 0 4 0 2 2 0 0 0-4 0zM12 16a2 2 0 1 0 4 0 2 2 0 0 0-4 0zM10 8l4 6',
     rect: 'M3 3h18v18H3z',
     circle: 'M12 12m-9 0a9 9 0 1 0 18 0a9 9 0 1 0-18 0',
+    diamond: 'M12 2L22 12L12 22L2 12Z',
     text: 'M4 6h16M4 12h16M4 18h7',
     sticky: 'M14 2H6a2 2 0 0 0-2 2v16l4-4h10a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2z',
     shape: 'M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z',
@@ -334,15 +504,13 @@ const icons = {
     download: 'M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3',
     zoomIn: 'M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM21 21l-4.35-4.35M11 8v6M8 11h6',
     zoomOut: 'M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM21 21l-4.35-4.35M8 11h6',
-    grid: 'M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z',
-    lock: 'M19 11H5a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7a2 2 0 0 0-2-2zM7 11V7a5 5 0 0 1 10 0v4',
     copy: 'M20 9H11a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2v-9a2 2 0 0 0-2-2zM5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1',
     close: 'M18 6L6 18M6 6l12 12',
-    menu: 'M3 12h18M3 6h18M3 18h18',
-    frame: 'M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3',
     vanish: 'M3 12c0-1 .5-2 1.5-2.5S7 9 8 10s1 3 2 4 2.5 1.5 4 1c1.5-.5 2.5-2 2-3.5S14 9 13 8.5',
+    editLabel: 'M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z',
 }
 
+// ─── Main Component ───────────────────────────────────────────────────────────
 export default function Sketchpad() {
     const canvasRef = useRef(null)
     const wrapRef = useRef(null)
@@ -362,12 +530,15 @@ export default function Sketchpad() {
         dragEls: null,
         resizeHandle: null,
         idCounter: 0,
-        // Marquee selection state
-        marquee: null, // { x, y, w, h } in world coords
+        marquee: null,
         isMarquee: false,
+        // hover-connector state
+        hoverShapeId: null,
+        hoverAnchorSide: null,  // which anchor dot the cursor is over
+        connStart: null,        // {elId, side} when dragging a new connector
     })
 
-    const [tool, setTool] = useState('pencil')
+    const [tool, setTool] = useState('select')
     const [color, setColor] = useState('#1a1a2e')
     const [fill, setFill] = useState('none')
     const [strokeSize, setStrokeSize] = useState(2)
@@ -378,15 +549,16 @@ export default function Sketchpad() {
     const [shapeType, setShapeType] = useState('rect')
     const [arrowStyle, setArrowStyle] = useState('line')
     const [arrowEnd, setArrowEnd] = useState('arrow')
-    const [textInput, setTextInput] = useState(null)
+    const [textInput, setTextInput] = useState(null)   // { x, y, sx, sy, color, font, fontSize, stickyId?, editId? }
     const [stickyColor, setStickyColor] = useState(STICKY_COLORS[0])
     const [mobileTab, setMobileTab] = useState('draw')
-    const [labelMode, setLabelMode] = useState(null)
+    const [labelMode, setLabelMode] = useState(null)   // { id, x, y, val } — kept for shape double-click
     const [selectedEl, setSelectedEl] = useState(null)
     const [selectionCount, setSelectionCount] = useState(0)
     const [viewVersion, setViewVersion] = useState(0)
 
-    const toolRef = useRef('pencil')
+    // refs that shadow state for use inside closures
+    const toolRef = useRef('select')
     const colorRef = useRef('#1a1a2e')
     const fillRef = useRef('none')
     const sizeRef = useRef(2)
@@ -412,14 +584,14 @@ export default function Sketchpad() {
 
     const newId = () => { stateRef.current.idCounter++; return stateRef.current.idCounter }
 
+    // ── persistence ──────────────────────────────────────────────────────────
     const STORAGE_KEY = 'sketchpad_elements'
     const saveToStorage = useCallback(() => {
         try {
             const s = stateRef.current
-            const serializable = s.elements.filter(el => el.tool !== 'image').map(el => {
-                const { img, ...rest } = el
-                return rest
-            })
+            const serializable = s.elements
+                .filter(el => el.tool !== 'image')
+                .map(el => { const { img, ...rest } = el; return rest })
             localStorage.setItem(STORAGE_KEY, JSON.stringify({ elements: serializable, idCounter: s.idCounter }))
         } catch { }
     }, [])
@@ -435,16 +607,12 @@ export default function Sketchpad() {
         } catch { }
     }, [])
 
-    useEffect(() => { loadFromStorage(); redraw() }, []) // eslint-disable-line
-
+    // ── background drawing ───────────────────────────────────────────────────
     const drawBackground = useCallback((ctx, w, h, bgStyle, panX, panY, z) => {
-        if (bgStyle === '#1a1a2e') {
-            ctx.fillStyle = '#1a1a2e'; ctx.fillRect(0, 0, w, h)
-        } else if (bgStyle === '#ffffff') {
-            ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, w, h)
-        } else {
-            ctx.fillStyle = '#fafaf9'; ctx.fillRect(0, 0, w, h)
-        }
+        if (bgStyle === '#1a1a2e') { ctx.fillStyle = '#1a1a2e'; ctx.fillRect(0, 0, w, h) }
+        else if (bgStyle === '#ffffff') { ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, w, h) }
+        else { ctx.fillStyle = '#fafaf9'; ctx.fillRect(0, 0, w, h) }
+
         const spacing = 24 * z
         const ox = (panX % spacing + spacing) % spacing
         const oy = (panY % spacing + spacing) % spacing
@@ -472,21 +640,52 @@ export default function Sketchpad() {
         ctx.restore()
     }, [])
 
+    // ── main redraw ──────────────────────────────────────────────────────────
     const redraw = useCallback(() => {
         const canvas = canvasRef.current
         if (!canvas) return
         const ctx = canvas.getContext('2d')
         const s = stateRef.current
         const bgOpt = BG_OPTIONS.find(b => b.id === bg) || BG_OPTIONS[0]
+
         drawBackground(ctx, canvas.width, canvas.height, bgOpt.style, s.panOffset.x, s.panOffset.y, s.zoom)
+
         s.elements.forEach(el => {
-            drawElement(ctx, el, s.selectedIds.has(el.id), s.panOffset.x, s.panOffset.y, s.zoom)
+            drawElement(ctx, el, s.selectedIds.has(el.id), s.panOffset.x, s.panOffset.y, s.zoom, s.elements)
         })
-        if (s.current) drawElement(ctx, s.current, false, s.panOffset.x, s.panOffset.y, s.zoom)
-        // Draw marquee selection rectangle if active
+        if (s.current) drawElement(ctx, s.current, false, s.panOffset.x, s.panOffset.y, s.zoom, s.elements)
+
         if (s.marquee && s.isMarquee) {
             drawMarquee(ctx, s.marquee.x, s.marquee.y, s.marquee.w, s.marquee.h, s.panOffset.x, s.panOffset.y, s.zoom)
         }
+
+        // smart connector hover UI
+        if (toolRef.current === 'select' && s.hoverShapeId) {
+            const hEl = s.elements.find(e => e.id === s.hoverShapeId)
+            if (hEl) {
+                drawHoverConnectors(ctx, hEl, s.panOffset.x, s.panOffset.y, s.zoom)
+                if (s.hoverAnchorSide) {
+                    drawClonePreview(ctx, hEl, s.hoverAnchorSide, s.panOffset.x, s.panOffset.y, s.zoom)
+                }
+            }
+        }
+
+        // connector being dragged
+        if (toolRef.current === 'connector' && s.current) {
+            ctx.save()
+            ctx.translate(s.panOffset.x, s.panOffset.y)
+            ctx.scale(s.zoom, s.zoom)
+            ctx.strokeStyle = '#457b9d'
+            ctx.lineWidth = sizeRef.current || 2
+            ctx.setLineDash([6, 4])
+            ctx.beginPath()
+            ctx.moveTo(s.current.x1, s.current.y1)
+            ctx.lineTo(s.current.x2, s.current.y2)
+            ctx.stroke()
+            ctx.setLineDash([])
+            ctx.restore()
+        }
+
         saveToStorage()
     }, [bg, drawBackground, saveToStorage])
 
@@ -525,6 +724,10 @@ export default function Sketchpad() {
     }, [])
 
     useEffect(() => {
+        loadFromStorage(); redraw()
+    }, []) // eslint-disable-line
+
+    useEffect(() => {
         resize()
         const ro = new ResizeObserver(resize)
         if (wrapRef.current) ro.observe(wrapRef.current)
@@ -533,6 +736,7 @@ export default function Sketchpad() {
 
     useEffect(() => { redraw() }, [redraw, bg])
 
+    // ── world-coordinate helpers ─────────────────────────────────────────────
     const getPos = useCallback((e) => {
         const canvas = canvasRef.current
         if (!canvas) return { x: 0, y: 0 }
@@ -545,6 +749,78 @@ export default function Sketchpad() {
         }
     }, [])
 
+    // ── hover-anchor hit-test ─────────────────────────────────────────────────
+    const getHoveredAnchor = useCallback((el, wx, wy) => {
+        if (!el || !CONNECTABLE_TOOLS.includes(el.tool)) return null
+        const s = stateRef.current
+        for (const a of getAnchors(el)) {
+            const dx = wx - a.x, dy = wy - a.y
+            if (Math.sqrt(dx * dx + dy * dy) < 12 / s.zoom) return a
+        }
+        return null
+    }, [])
+
+    // ── clone & auto-connect ─────────────────────────────────────────────────
+    const cloneAndConnect = useCallback((srcEl, side) => {
+        const s = stateRef.current
+        const b = getElementBounds(srcEl)
+        const DIST = 100
+        const offsets = { top: [0, -(b.h + DIST)], bottom: [0, b.h + DIST], left: [-(b.w + DIST), 0], right: [b.w + DIST, 0] }
+        const oppSide = { top: 'bottom', bottom: 'top', left: 'right', right: 'left' }
+        const [ox, oy] = offsets[side] || [b.w + DIST, 0]
+
+        const newEl = JSON.parse(JSON.stringify(srcEl))
+        newEl.id = newId()
+        newEl.label = ''
+        newEl.x1 = srcEl.x1 + ox
+        newEl.y1 = srcEl.y1 + oy
+        newEl.x2 = srcEl.x2 + ox
+        newEl.y2 = srcEl.y2 + oy
+
+        const conn = {
+            id: newId(),
+            tool: 'connector',
+            x1: 0, y1: 0, x2: 0, y2: 0,
+            fromId: srcEl.id,
+            fromSide: side,
+            toId: newEl.id,
+            toSide: oppSide[side],
+            color: '#457b9d',
+            size: sizeRef.current || 2,
+            arrowStyle: 'line',
+        }
+
+        s.elements.push(newEl, conn)
+        s.redo = []
+        s.selectedIds = new Set([newEl.id])
+        s.hoverShapeId = null
+        s.hoverAnchorSide = null
+        setSelectedEl({ ...newEl })
+        setSelectionCount(1)
+        setViewVersion(v => v + 1)
+        redraw()
+
+        // immediately open inline label edit on the new shape
+        const canvas = canvasRef.current
+        if (!canvas) return
+        const nb = getElementBounds(newEl)
+        const sc = { x: nb.x * s.zoom + s.panOffset.x, y: nb.y * s.zoom + s.panOffset.y }
+        const sw = nb.w * s.zoom, sh = nb.h * s.zoom
+        setTextInput({
+            x: sc.x + sw / 2 - 60,
+            y: sc.y + sh / 2 - 16,
+            sx: nb.x + nb.w / 2,
+            sy: nb.y + nb.h / 2,
+            color: colorRef.current,
+            font: FONTS[fontRef.current],
+            fontSize: 14,
+            editId: newEl.id,
+            isLabel: true,
+        })
+        setTimeout(() => textareaRef.current?.focus(), 50)
+    }, [redraw]) // eslint-disable-line
+
+    // ── vanish animation ─────────────────────────────────────────────────────
     const vanishRedraw = useCallback(() => {
         const canvas = canvasRef.current
         if (!canvas) return
@@ -552,29 +828,25 @@ export default function Sketchpad() {
         const s = stateRef.current
         const now = Date.now()
         const bgOpt = BG_OPTIONS.find(b => b.id === bg) || BG_OPTIONS[0]
+
         vanishStrokesRef.current.forEach(vs => {
             if (!vs.createdAt) { vs._alpha = 1; return }
             const age = now - vs.createdAt
             if (age < VANISH_DURATION) { vs._alpha = 1 }
-            else {
-                const fade = age - VANISH_DURATION
-                vs._alpha = Math.max(0, 1 - fade / VANISH_FADE)
-            }
+            else { const fade = age - VANISH_DURATION; vs._alpha = Math.max(0, 1 - fade / VANISH_FADE) }
         })
         vanishStrokesRef.current = vanishStrokesRef.current.filter(vs => !vs.createdAt || vs._alpha > 0)
+
         const hasVanish = vanishStrokesRef.current.length > 0 || (s.drawing && toolRef.current === 'vanish')
         if (hasVanish || s.drawing) {
             drawBackground(ctx, canvas.width, canvas.height, bgOpt.style, s.panOffset.x, s.panOffset.y, s.zoom)
-            s.elements.forEach(el => drawElement(ctx, el, s.selectedIds.has(el.id), s.panOffset.x, s.panOffset.y, s.zoom))
-            if (s.current) drawElement(ctx, s.current, false, s.panOffset.x, s.panOffset.y, s.zoom)
-            vanishStrokesRef.current.forEach(vs => drawElement(ctx, vs, false, s.panOffset.x, s.panOffset.y, s.zoom))
+            s.elements.forEach(el => drawElement(ctx, el, s.selectedIds.has(el.id), s.panOffset.x, s.panOffset.y, s.zoom, s.elements))
+            if (s.current) drawElement(ctx, s.current, false, s.panOffset.x, s.panOffset.y, s.zoom, s.elements)
+            vanishStrokesRef.current.forEach(vs => drawElement(ctx, vs, false, s.panOffset.x, s.panOffset.y, s.zoom, s.elements))
         }
-        if (hasVanish) {
-            animFrameRef.current = requestAnimationFrame(vanishRedraw)
-        } else {
-            animFrameRef.current = null
-            redraw()
-        }
+
+        if (hasVanish) { animFrameRef.current = requestAnimationFrame(vanishRedraw) }
+        else { animFrameRef.current = null; redraw() }
     }, [bg, redraw, drawBackground])
 
     const startVanishLoop = useCallback(() => {
@@ -582,6 +854,7 @@ export default function Sketchpad() {
         animFrameRef.current = requestAnimationFrame(vanishRedraw)
     }, [vanishRedraw])
 
+    // ── pointer down ─────────────────────────────────────────────────────────
     const onDown = useCallback((e) => {
         if (e.target !== canvasRef.current) return
         e.preventDefault()
@@ -596,7 +869,13 @@ export default function Sketchpad() {
         }
 
         if (t === 'select') {
-            // Check resize handles first
+            // ── click on a hover-connector anchor → clone ──────────────────
+            if (s.hoverShapeId && s.hoverAnchorSide) {
+                const hEl = s.elements.find(e => e.id === s.hoverShapeId)
+                if (hEl) { cloneAndConnect(hEl, s.hoverAnchorSide); return }
+            }
+
+            // ── resize handles ──────────────────────────────────────────────
             if (s.selectedIds.size === 1) {
                 const selEl = s.elements.find(el => s.selectedIds.has(el.id))
                 if (selEl) {
@@ -604,8 +883,7 @@ export default function Sketchpad() {
                     const handles = getHandles(b)
                     for (let i = 0; i < handles.length; i++) {
                         const [hx, hy] = handles[i]
-                        const dist = Math.sqrt((pos.x - hx) ** 2 + (pos.y - hy) ** 2)
-                        if (dist < 10 / s.zoom) {
+                        if (Math.sqrt((pos.x - hx) ** 2 + (pos.y - hy) ** 2) < 10 / s.zoom) {
                             s.resizeHandle = { idx: i, el: selEl, origBounds: { ...b } }
                             s.drawing = true; return
                         }
@@ -613,33 +891,28 @@ export default function Sketchpad() {
                 }
             }
 
-            // Check if clicking on an existing element
+            // ── click element or start marquee ─────────────────────────────
             let found = null
             for (let i = s.elements.length - 1; i >= 0; i--) {
                 if (hitTest(s.elements[i], pos.x, pos.y)) { found = s.elements[i]; break }
             }
-
             if (found) {
-                // Clicked on an element — normal selection / drag
                 if (!(e.shiftKey || e.ctrlKey || e.metaKey)) {
                     if (!s.selectedIds.has(found.id)) s.selectedIds = new Set([found.id])
                 } else {
                     const ns = new Set(s.selectedIds)
-                    if (ns.has(found.id)) ns.delete(found.id); else ns.add(found.id)
+                    ns.has(found.id) ? ns.delete(found.id) : ns.add(found.id)
                     s.selectedIds = ns
                 }
-                const newSel = s.elements.find(el => s.selectedIds.has(el.id)) || null
-                setSelectedEl(newSel)
+                setSelectedEl(s.elements.find(el => s.selectedIds.has(el.id)) || null)
                 setSelectionCount(s.selectedIds.size)
                 s.dragStart = { x: pos.x, y: pos.y }
                 s.dragEls = s.elements.filter(el => s.selectedIds.has(el.id)).map(el => JSON.parse(JSON.stringify(el)))
                 s.drawing = true
                 s.isMarquee = false
             } else {
-                // Clicked on empty space — start marquee selection
                 s.selectedIds = new Set()
-                setSelectedEl(null)
-                setSelectionCount(0)
+                setSelectedEl(null); setSelectionCount(0)
                 s.marquee = { x: pos.x, y: pos.y, w: 0, h: 0 }
                 s.isMarquee = true
                 s.drawing = true
@@ -652,12 +925,9 @@ export default function Sketchpad() {
             const r = canvas.getBoundingClientRect()
             const ce = e.touches ? e.touches[0] : e
             setTextInput({
-                x: ce.clientX - r.left,
-                y: ce.clientY - r.top,
+                x: ce.clientX - r.left, y: ce.clientY - r.top,
                 sx: pos.x, sy: pos.y + (fontSizeRef.current || 18),
-                color: colorRef.current,
-                font: FONTS[fontRef.current],
-                fontSize: fontSizeRef.current
+                color: colorRef.current, font: FONTS[fontRef.current], fontSize: fontSizeRef.current,
             })
             setTimeout(() => textareaRef.current?.focus(), 50)
             return
@@ -666,42 +936,82 @@ export default function Sketchpad() {
         if (t === 'sticky') {
             const id = newId()
             const el = { id, tool: 'sticky', x1: pos.x, y1: pos.y, text: 'Note', bgColor: stickyColorRef.current, width: 200, height: 100 }
-            stateRef.current.elements.push(el)
-            stateRef.current.redo = []
-            redraw()
+            s.elements.push(el); s.redo = []; redraw()
             const canvas = canvasRef.current
-            const r2 = canvas.getBoundingClientRect()
+            const r = canvas.getBoundingClientRect()
             const ce = e.touches ? e.touches[0] : e
-            setTextInput({ x: ce.clientX - r2.left, y: ce.clientY - r2.top, sx: pos.x, sy: pos.y + 30, color: '#1a1a2e', font: FONTS[0], fontSize: 14, stickyId: id })
+            setTextInput({ x: ce.clientX - r.left, y: ce.clientY - r.top, sx: pos.x, sy: pos.y + 30, color: '#1a1a2e', font: FONTS[0], fontSize: 14, stickyId: id })
             setTimeout(() => textareaRef.current?.focus(), 50)
             return
         }
 
         if (t === 'image') { fileRef.current?.click(); return }
 
-        stateRef.current.drawing = true
-        stateRef.current.redo = []
+        // ── connector tool ─────────────────────────────────────────────────
+        if (t === 'connector') {
+            let startEl = null, startSide = 'right'
+            for (let i = s.elements.length - 1; i >= 0; i--) {
+                const el = s.elements[i]
+                if (!CONNECTABLE_TOOLS.includes(el.tool)) continue
+                const anchor = getHoveredAnchor(el, pos.x, pos.y)
+                if (anchor) { startEl = el; startSide = anchor.side; break }
+            }
+            s.connStart = { elId: startEl?.id, side: startSide }
+            s.current = {
+                id: newId(), tool: 'connector',
+                x1: pos.x, y1: pos.y, x2: pos.x, y2: pos.y,
+                fromId: startEl?.id,
+                fromSide: startSide,
+                color: colorRef.current || '#457b9d',
+                size: sizeRef.current || 2,
+                arrowStyle: arrowStyleRef.current,
+            }
+            s.drawing = true; s.redo = []
+            return
+        }
+
+        // ── drawing tools ──────────────────────────────────────────────────
+        s.drawing = true; s.redo = []
         const id = newId()
         if (t === 'vanish') {
             const stroke = { id, tool: 'vanish', size: sizeRef.current, points: [[pos.x, pos.y]], createdAt: null, _alpha: 1 }
             vanishStrokesRef.current.push(stroke)
-            stateRef.current.current = stroke
+            s.current = stroke
             startVanishLoop()
         } else if (t === 'pencil' || t === 'pen' || t === 'eraser' || t === 'highlighter') {
-            stateRef.current.current = { id, tool: t, color: colorRef.current, size: sizeRef.current, points: [[pos.x, pos.y]] }
+            s.current = { id, tool: t, color: colorRef.current, size: sizeRef.current, points: [[pos.x, pos.y]] }
         } else if (t === 'shape') {
-            stateRef.current.current = { id, tool: 'shape', shapeType: shapeRef.current, color: colorRef.current, fill: fillRef.current === 'none' ? null : fillRef.current, size: sizeRef.current, x1: pos.x, y1: pos.y, x2: pos.x, y2: pos.y }
+            s.current = { id, tool: 'shape', shapeType: shapeRef.current, color: colorRef.current, fill: fillRef.current === 'none' ? null : fillRef.current, size: sizeRef.current, x1: pos.x, y1: pos.y, x2: pos.x, y2: pos.y }
         } else {
-            stateRef.current.current = { id, tool: t, color: colorRef.current, fill: fillRef.current === 'none' ? null : fillRef.current, size: sizeRef.current, arrowStyle: arrowStyleRef.current, arrowEnd: arrowEndRef.current, x1: pos.x, y1: pos.y, x2: pos.x, y2: pos.y }
+            s.current = { id, tool: t, color: colorRef.current, fill: fillRef.current === 'none' ? null : fillRef.current, size: sizeRef.current, arrowStyle: arrowStyleRef.current, arrowEnd: arrowEndRef.current, x1: pos.x, y1: pos.y, x2: pos.x, y2: pos.y }
         }
-    }, [getPos, redraw])
+    }, [getPos, getHoveredAnchor, cloneAndConnect, redraw, startVanishLoop])
 
+    // ── pointer move ─────────────────────────────────────────────────────────
     const onMove = useCallback((e) => {
         const s = stateRef.current
-        if (!s.drawing) return
-        e.preventDefault()
         const pos = getPos(e)
         const t = toolRef.current
+
+        // hover-connector detection (no button held)
+        if (t === 'select' && !s.drawing) {
+            let found = null
+            for (let i = s.elements.length - 1; i >= 0; i--) {
+                const el = s.elements[i]
+                if (CONNECTABLE_TOOLS.includes(el.tool) && hitTest(el, pos.x, pos.y)) { found = el; break }
+            }
+            const newHov = found?.id || null
+            const anchor = found ? getHoveredAnchor(found, pos.x, pos.y) : null
+            if (newHov !== s.hoverShapeId || (anchor?.side || null) !== s.hoverAnchorSide) {
+                s.hoverShapeId = newHov
+                s.hoverAnchorSide = anchor?.side || null
+                redraw()
+            }
+            return
+        }
+
+        if (!s.drawing) return
+        e.preventDefault()
 
         if (t === 'pan' && s.panStart) {
             const ce = e.touches ? e.touches[0] : e
@@ -710,21 +1020,13 @@ export default function Sketchpad() {
         }
 
         if (t === 'select') {
-            // Marquee drag
             if (s.isMarquee && s.marquee) {
                 s.marquee.w = pos.x - s.marquee.x
                 s.marquee.h = pos.y - s.marquee.y
-                // Live-preview: highlight elements inside the marquee
                 const inside = new Set()
-                s.elements.forEach(el => {
-                    if (marqueeHitTest(el, s.marquee.x, s.marquee.y, s.marquee.w, s.marquee.h)) {
-                        inside.add(el.id)
-                    }
-                })
-                s.selectedIds = inside
-                redraw(); return
+                s.elements.forEach(el => { if (marqueeHitTest(el, s.marquee.x, s.marquee.y, s.marquee.w, s.marquee.h)) inside.add(el.id) })
+                s.selectedIds = inside; redraw(); return
             }
-            // Resize handle drag
             if (s.resizeHandle && s.resizeHandle.el) {
                 const el = s.elements.find(x => x.id === s.resizeHandle.el.id)
                 if (el && el.x1 !== undefined) {
@@ -737,7 +1039,6 @@ export default function Sketchpad() {
                 }
                 return
             }
-            // Normal element drag
             if (s.dragStart && s.dragEls) {
                 const dx = pos.x - s.dragStart.x, dy = pos.y - s.dragStart.y
                 s.elements.forEach(el => {
@@ -756,59 +1057,72 @@ export default function Sketchpad() {
             }
         }
 
+        if (t === 'connector' && s.current) {
+            s.current.x2 = pos.x; s.current.y2 = pos.y
+            // snap toId when hovering another shape's anchor
+            s.current.toId = null
+            s.current.toSide = null
+            for (const el of s.elements) {
+                if (!CONNECTABLE_TOOLS.includes(el.tool)) continue
+                const anchor = getHoveredAnchor(el, pos.x, pos.y)
+                if (anchor && el.id !== s.current.fromId) {
+                    s.current.toId = el.id
+                    s.current.toSide = anchor.side
+                    break
+                }
+            }
+            redraw(); return
+        }
+
         if (t === 'pencil' || t === 'pen' || t === 'eraser' || t === 'highlighter' || t === 'vanish') {
             s.current?.points.push([pos.x, pos.y])
         } else if (s.current) {
             s.current.x2 = pos.x; s.current.y2 = pos.y
         }
         redraw()
-    }, [getPos, redraw])
+    }, [getPos, getHoveredAnchor, redraw])
 
+    // ── pointer up ───────────────────────────────────────────────────────────
     const onUp = useCallback(() => {
         const s = stateRef.current
         if (!s.drawing) return
         s.drawing = false
 
         if (toolRef.current === 'pan') {
-            s.panStart = null
-            setViewVersion(v => v + 1)
-            return
+            s.panStart = null; setViewVersion(v => v + 1); return
         }
 
         if (toolRef.current === 'select') {
             if (s.isMarquee) {
-                // Finalize marquee — select all elements that intersect the rect
                 if (s.marquee) {
                     const inside = new Set()
-                    s.elements.forEach(el => {
-                        if (marqueeHitTest(el, s.marquee.x, s.marquee.y, s.marquee.w, s.marquee.h)) {
-                            inside.add(el.id)
-                        }
-                    })
+                    s.elements.forEach(el => { if (marqueeHitTest(el, s.marquee.x, s.marquee.y, s.marquee.w, s.marquee.h)) inside.add(el.id) })
                     s.selectedIds = inside
                     setSelectionCount(inside.size)
-                    const firstSel = s.elements.find(el => inside.has(el.id)) || null
-                    setSelectedEl(firstSel ? { ...firstSel } : null)
+                    setSelectedEl(s.elements.find(el => inside.has(el.id)) ? { ...s.elements.find(el => inside.has(el.id)) } : null)
                 }
                 s.marquee = null
                 s.isMarquee = false
-                setViewVersion(v => v + 1)
-                redraw()
-                return
+                setViewVersion(v => v + 1); redraw(); return
             }
             s.dragStart = null; s.dragEls = null; s.resizeHandle = null
             const freshEl = s.elements.find(el => s.selectedIds.has(el.id)) || null
             setSelectedEl(freshEl ? { ...freshEl } : null)
             setSelectionCount(s.selectedIds.size)
-            setViewVersion(v => v + 1)
-            return
+            setViewVersion(v => v + 1); return
         }
 
         if (toolRef.current === 'vanish') {
             if (s.current) s.current.createdAt = Date.now()
+            s.current = null; startVanishLoop(); return
+        }
+
+        if (toolRef.current === 'connector' && s.current) {
+            const ok = Math.abs(s.current.x2 - s.current.x1) > 5 || Math.abs(s.current.y2 - s.current.y1) > 5
+            if (ok) s.elements.push({ ...s.current })
             s.current = null
-            startVanishLoop()
-            return
+            s.connStart = null
+            redraw(); return
         }
 
         if (s.current) {
@@ -819,42 +1133,84 @@ export default function Sketchpad() {
         }
     }, [redraw, startVanishLoop])
 
-    const onWheel = useCallback((e) => {
-        e.preventDefault()
-        const s = stateRef.current
-        const canvas = canvasRef.current
-        if (!canvas) return
-        const rect = canvas.getBoundingClientRect()
-        const cx = e.clientX - rect.left
-        const cy = e.clientY - rect.top
-        const wx = (cx - s.panOffset.x) / s.zoom
-        const wy = (cy - s.panOffset.y) / s.zoom
-        const factor = e.deltaY > 0 ? 0.9 : 1.1
-        const newZoom = Math.min(5, Math.max(0.1, s.zoom * factor))
-        s.panOffset = { x: cx - wx * newZoom, y: cy - wy * newZoom }
-        s.zoom = newZoom
-        setZoom(Math.round(newZoom * 100) / 100)
-        setViewVersion(v => v + 1)
-        redraw()
-    }, [redraw])
-
+    // ── double-click → inline label edit ─────────────────────────────────────
     const onDblClick = useCallback((e) => {
         const pos = getPos(e)
         const s = stateRef.current
+        const canvas = canvasRef.current
+        const r = canvas.getBoundingClientRect()
+
         for (let i = s.elements.length - 1; i >= 0; i--) {
             const el = s.elements[i]
-            if ((el.tool === 'shape' || el.tool === 'rect' || el.tool === 'circle') && hitTest(el, pos.x, pos.y)) {
-                const canvas = canvasRef.current
-                const r = canvas.getBoundingClientRect()
-                setLabelMode({ id: el.id, x: e.clientX - r.left, y: e.clientY - r.top, val: el.label || '' })
+            if (!hitTest(el, pos.x, pos.y)) continue
+
+            // shapes → edit inline label
+            if (['rect', 'circle', 'shape', 'diamond'].includes(el.tool)) {
+                const b = getElementBounds(el)
+                const sc = { x: b.x * s.zoom + s.panOffset.x, y: b.y * s.zoom + s.panOffset.y }
+                const sw = b.w * s.zoom, sh = b.h * s.zoom
+                setTextInput({
+                    x: sc.x + sw / 2 - 60,
+                    y: sc.y + sh / 2 - 16,
+                    sx: b.x + b.w / 2,
+                    sy: b.y + b.h / 2,
+                    color: colorRef.current,
+                    font: FONTS[fontRef.current],
+                    fontSize: el.labelSize || 14,
+                    editId: el.id,
+                    isLabel: true,
+                    initVal: el.label || '',
+                })
+                setTimeout(() => textareaRef.current?.focus(), 50)
+                return
+            }
+
+            // text elements → edit text
+            if (el.tool === 'text') {
+                setTextInput({
+                    x: e.clientX - r.left, y: e.clientY - r.top,
+                    sx: el.x1, sy: el.y1,
+                    color: el.color || colorRef.current,
+                    font: el.font || FONTS[fontRef.current],
+                    fontSize: el.fontSize || 18,
+                    editId: el.id,
+                    isLabel: false,
+                    initVal: el.text || '',
+                })
+                setTimeout(() => textareaRef.current?.focus(), 50)
+                return
+            }
+
+            // sticky → use shape label (fallback)
+            if (el.tool === 'sticky') {
+                setLabelMode({ id: el.id, x: e.clientX - r.left, y: e.clientY - r.top, val: el.text || '' })
                 return
             }
         }
     }, [getPos])
 
+    // ── wheel zoom ────────────────────────────────────────────────────────────
     useEffect(() => {
         const c = canvasRef.current
         if (!c) return
+        const onWheel = (e) => {
+            e.preventDefault()
+            const s = stateRef.current
+            const canvas = canvasRef.current
+            if (!canvas) return
+            const rect = canvas.getBoundingClientRect()
+            const cx = e.clientX - rect.left
+            const cy = e.clientY - rect.top
+            const wx = (cx - s.panOffset.x) / s.zoom
+            const wy = (cy - s.panOffset.y) / s.zoom
+            const f = e.deltaY > 0 ? 0.9 : 1.1
+            const nz = Math.min(5, Math.max(0.1, s.zoom * f))
+            s.panOffset = { x: cx - wx * nz, y: cy - wy * nz }
+            s.zoom = nz
+            setZoom(Math.round(nz * 100) / 100)
+            setViewVersion(v => v + 1)
+            redraw()
+        }
         c.addEventListener('wheel', onWheel, { passive: false })
         const onTS = e => { e.preventDefault(); onDown(e) }
         const onTM = e => { e.preventDefault(); onMove(e) }
@@ -870,17 +1226,30 @@ export default function Sketchpad() {
             c.removeEventListener('touchend', onTE)
             c.removeEventListener('touchcancel', onTE)
         }
-    }, [onWheel, onDown, onMove, onUp])
+    }, [onDown, onMove, onUp, redraw])
 
+    // ── commit text / label ───────────────────────────────────────────────────
     const commitText = useCallback(() => {
         const txt = textareaRef.current?.value?.trim()
         const s = stateRef.current
-        if (txt && textInput) {
-            if (textInput.stickyId) {
+        if (textInput) {
+            if (textInput.editId) {
+                // editing existing element
+                const el = s.elements.find(x => x.id === textInput.editId)
+                if (el) {
+                    if (textInput.isLabel) el.label = txt || ''
+                    else el.text = txt || el.text
+                }
+            } else if (textInput.stickyId) {
                 const el = s.elements.find(x => x.id === textInput.stickyId)
-                if (el) { el.text = txt; el.width = Math.max(200, txt.length * 8 + 24) }
-            } else {
-                s.elements.push({ id: newId(), tool: 'text', x1: textInput.sx, y1: textInput.sy, text: txt, color: textInput.color, fontSize: textInput.fontSize, font: textInput.font })
+                if (el) { el.text = txt; el.width = Math.max(200, (txt?.length || 0) * 8 + 24) }
+            } else if (txt) {
+                s.elements.push({
+                    id: newId(), tool: 'text',
+                    x1: textInput.sx, y1: textInput.sy,
+                    text: txt, color: textInput.color,
+                    fontSize: textInput.fontSize, font: textInput.font,
+                })
             }
             s.redo = []; redraw()
         }
@@ -897,6 +1266,7 @@ export default function Sketchpad() {
         setLabelMode(null)
     }, [labelMode, redraw])
 
+    // ── undo / redo / edit actions ────────────────────────────────────────────
     const undo = useCallback(() => {
         const s = stateRef.current
         if (s.elements.length) { s.redo.push(s.elements.pop()); redraw() }
@@ -939,9 +1309,7 @@ export default function Sketchpad() {
         const canvas = canvasRef.current
         if (!canvas) return
         const a = document.createElement('a')
-        a.download = 'sketchpad.png'
-        a.href = canvas.toDataURL('image/png')
-        a.click()
+        a.download = 'sketchpad.png'; a.href = canvas.toDataURL('image/png'); a.click()
     }, [])
 
     const handleImageUpload = useCallback((e) => {
@@ -964,18 +1332,10 @@ export default function Sketchpad() {
         e.target.value = ''
     }, [redraw])
 
-    const zoomIn = () => {
-        const s = stateRef.current; s.zoom = Math.min(5, s.zoom * 1.2)
-        setZoom(Math.round(s.zoom * 100) / 100); setViewVersion(v => v + 1); redraw()
-    }
-    const zoomOut = () => {
-        const s = stateRef.current; s.zoom = Math.max(0.1, s.zoom / 1.2)
-        setZoom(Math.round(s.zoom * 100) / 100); setViewVersion(v => v + 1); redraw()
-    }
-    const resetZoom = () => {
-        const s = stateRef.current; s.zoom = 1; s.panOffset = { x: 0, y: 0 }
-        setZoom(1); setViewVersion(v => v + 1); redraw()
-    }
+    // ── zoom helpers ──────────────────────────────────────────────────────────
+    const zoomIn = () => { const s = stateRef.current; s.zoom = Math.min(5, s.zoom * 1.2); setZoom(Math.round(s.zoom * 100) / 100); setViewVersion(v => v + 1); redraw() }
+    const zoomOut = () => { const s = stateRef.current; s.zoom = Math.max(0.1, s.zoom / 1.2); setZoom(Math.round(s.zoom * 100) / 100); setViewVersion(v => v + 1); redraw() }
+    const resetZoom = () => { const s = stateRef.current; s.zoom = 1; s.panOffset = { x: 0, y: 0 }; setZoom(1); setViewVersion(v => v + 1); redraw() }
 
     const fitToScreen = useCallback(() => {
         const s = stateRef.current
@@ -993,11 +1353,10 @@ export default function Sketchpad() {
         const nz = Math.min(fw / cw, fh / ch, 2)
         s.zoom = nz
         s.panOffset = { x: pad - minX * nz, y: pad - minY * nz }
-        setZoom(Math.round(nz * 100) / 100)
-        setViewVersion(v => v + 1)
-        redraw()
+        setZoom(Math.round(nz * 100) / 100); setViewVersion(v => v + 1); redraw()
     }, [redraw])
 
+    // ── keyboard shortcuts ────────────────────────────────────────────────────
     useEffect(() => {
         const kd = (e) => {
             if (document.activeElement?.tagName === 'TEXTAREA' || document.activeElement?.tagName === 'INPUT') return
@@ -1009,26 +1368,26 @@ export default function Sketchpad() {
                 stateRef.current.selectedIds = new Set()
                 stateRef.current.marquee = null
                 stateRef.current.isMarquee = false
+                stateRef.current.hoverShapeId = null
+                stateRef.current.hoverAnchorSide = null
                 setSelectedEl(null); setSelectionCount(0); redraw()
             }
-            const map = { p: 'pencil', b: 'pen', h: 'highlighter', e: 'eraser', l: 'line', a: 'arrow', r: 'rect', c: 'circle', s: 'shape', t: 'text', n: 'sticky', v: 'select', m: 'pan', i: 'image' }
+            const map = { p: 'pencil', b: 'pen', h: 'highlighter', e: 'eraser', l: 'line', a: 'arrow', c: 'connector', r: 'rect', o: 'circle', s: 'shape', t: 'text', n: 'sticky', v: 'select', m: 'pan', i: 'image' }
             if (map[e.key]) setTool(map[e.key])
         }
         document.addEventListener('keydown', kd)
         return () => document.removeEventListener('keydown', kd)
     }, [undo, redo, deleteSelected, duplicateSelected, redraw])
 
-    // Compute inline toolbar position — shown for any selection (single or multi)
+    // ── inline toolbar position ────────────────────────────────────────────────
     const inlineToolbarPos = useMemo(() => {
         const s = stateRef.current
         if (s.selectedIds.size === 0) return null
-        // Compute bounding box of all selected elements
         let minX = Infinity, minY = Infinity, maxX = -Infinity
         s.elements.forEach(el => {
             if (!s.selectedIds.has(el.id)) return
             const b = getElementBounds(el)
-            minX = Math.min(minX, b.x); minY = Math.min(minY, b.y)
-            maxX = Math.max(maxX, b.x + b.w)
+            minX = Math.min(minX, b.x); minY = Math.min(minY, b.y); maxX = Math.max(maxX, b.x + b.w)
         })
         if (!isFinite(minX)) return null
         const midWorldX = (minX + maxX) / 2
@@ -1037,22 +1396,14 @@ export default function Sketchpad() {
         return { left: screenX, top: Math.max(8, screenY - 48) }
     }, [selectedEl, selectionCount, viewVersion]) // eslint-disable-line
 
+    // ── styles ────────────────────────────────────────────────────────────────
     const S = useMemo(() => ({
-        root: {
-            display: 'flex', flexDirection: 'column', width: '100%', height: '100%', minHeight: 500,
-            fontFamily: "'DM Sans', sans-serif", background: '#f5f5f0', overflow: 'hidden', position: 'relative'
-        },
-        topbar: {
-            display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px',
-            background: '#ffffff', borderBottom: '1px solid #e8e8e4',
-            flexWrap: 'nowrap', overflowX: 'auto', minHeight: 48,
-            userSelect: 'none', flexShrink: 0
-        },
+        root: { display: 'flex', flexDirection: 'column', width: '100%', height: '100%', minHeight: 500, fontFamily: "'DM Sans', sans-serif", background: '#f5f5f0', overflow: 'hidden', position: 'relative' },
+        topbar: { display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', background: '#ffffff', borderBottom: '1px solid #e8e8e4', flexWrap: 'nowrap', overflowX: 'auto', minHeight: 48, userSelect: 'none', flexShrink: 0 },
         toolBtn: (active, tid) => ({
             width: 34, height: 34,
             border: tid === 'vanish' && active ? '1.5px solid #ff2d55' : active ? '1.5px solid #6366f1' : '1px solid transparent',
-            borderRadius: 8,
-            background: tid === 'vanish' && active ? '#fff0f3' : active ? '#eef2ff' : 'transparent',
+            borderRadius: 8, background: tid === 'vanish' && active ? '#fff0f3' : active ? '#eef2ff' : 'transparent',
             cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
             color: tid === 'vanish' && active ? '#ff2d55' : active ? '#4f46e5' : '#52525b',
             transition: 'all 0.12s', flexShrink: 0,
@@ -1061,35 +1412,17 @@ export default function Sketchpad() {
             width: 32, height: 32, border: `1px solid ${active ? '#e0e0ff' : '#e8e8e4'}`,
             borderRadius: 7, background: active ? '#f0f0ff' : '#ffffff',
             cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-            color: active ? '#4f46e5' : '#71717a', transition: 'all 0.12s', flexShrink: 0
+            color: active ? '#4f46e5' : '#71717a', transition: 'all 0.12s', flexShrink: 0,
         }),
         sep: { width: 1, height: 28, background: '#e8e8e4', flexShrink: 0, margin: '0 2px' },
         label: { fontSize: 11, color: '#9ca3af', userSelect: 'none', whiteSpace: 'nowrap' },
         canvasWrap: { flex: 1, position: 'relative', overflow: 'hidden' },
-        propPanel: {
-            position: 'absolute', right: 8, top: 8, width: 180, background: '#ffffff',
-            borderRadius: 12, border: '1px solid #e8e8e4', padding: 12,
-            display: 'flex', flexDirection: 'column', gap: 8, zIndex: 10,
-            boxShadow: '0 2px 12px rgba(0,0,0,0.06)'
-        },
+        propPanel: { position: 'absolute', right: 8, top: 8, width: 180, background: '#ffffff', borderRadius: 12, border: '1px solid #e8e8e4', padding: 12, display: 'flex', flexDirection: 'column', gap: 8, zIndex: 10, boxShadow: '0 2px 12px rgba(0,0,0,0.06)' },
         sidebarSection: { display: 'flex', flexDirection: 'column', gap: 6 },
         sidebarLabel: { fontSize: 10, fontWeight: 600, color: '#9ca3af', letterSpacing: '.06em', textTransform: 'uppercase' },
-        colorDot: (c, active) => ({
-            width: 20, height: 20, borderRadius: '50%', background: c,
-            border: active ? '2.5px solid #6366f1' : '2px solid transparent',
-            cursor: 'pointer', transform: active ? 'scale(1.2)' : 'scale(1)',
-            transition: 'all 0.1s', flexShrink: 0,
-            boxShadow: '0 0 0 1px rgba(0,0,0,0.1)'
-        }),
-        mobileBottom: {
-            position: 'absolute', bottom: 0, left: 0, right: 0,
-            background: '#ffffff', borderTop: '1px solid #e8e8e4',
-            padding: '8px 12px', zIndex: 30
-        },
-        kbd: {
-            display: 'inline-block', background: '#f4f4f2', border: '1px solid #ddd',
-            borderRadius: 3, padding: '0 4px', fontSize: 10, color: '#666'
-        },
+        colorDot: (c, active) => ({ width: 20, height: 20, borderRadius: '50%', background: c, border: active ? '2.5px solid #6366f1' : '2px solid transparent', cursor: 'pointer', transform: active ? 'scale(1.2)' : 'scale(1)', transition: 'all 0.1s', flexShrink: 0, boxShadow: '0 0 0 1px rgba(0,0,0,0.1)' }),
+        mobileBottom: { position: 'absolute', bottom: 0, left: 0, right: 0, background: '#ffffff', borderTop: '1px solid #e8e8e4', padding: '8px 12px', zIndex: 30 },
+        kbd: { display: 'inline-block', background: '#f4f4f2', border: '1px solid #ddd', borderRadius: 3, padding: '0 4px', fontSize: 10, color: '#666' },
     }), [])
 
     const mob = isMobile()
@@ -1106,10 +1439,12 @@ export default function Sketchpad() {
         null,
         { id: 'line', icon: 'line', key: 'L', label: 'Line' },
         { id: 'arrow', icon: 'arrow', key: 'A', label: 'Arrow' },
+        { id: 'connector', icon: 'connector', key: 'C', label: 'Smart Connector' },
         { id: 'double-arrow', icon: 'arrow', key: null, label: '↔ Arrow' },
         null,
-        { id: 'rect', icon: 'rect', key: 'R', label: 'Rect' },
-        { id: 'circle', icon: 'circle', key: 'C', label: 'Circle' },
+        { id: 'rect', icon: 'rect', key: 'R', label: 'Rectangle' },
+        { id: 'circle', icon: 'circle', key: 'O', label: 'Circle' },
+        { id: 'diamond', icon: 'diamond', key: null, label: 'Diamond' },
         { id: 'shape', icon: 'shape', key: 'S', label: 'Shape' },
         null,
         { id: 'text', icon: 'text', key: 'T', label: 'Text' },
@@ -1118,9 +1453,15 @@ export default function Sketchpad() {
     ]
 
     const MOBILE_TOOLS = [
-        { id: 'pencil', icon: 'pencil' }, { id: 'eraser', icon: 'eraser' }, { id: 'arrow', icon: 'arrow' },
-        { id: 'rect', icon: 'rect' }, { id: 'text', icon: 'text' }, { id: 'sticky', icon: 'sticky' },
-        { id: 'select', icon: 'select' }, { id: 'pan', icon: 'pan' }
+        { id: 'pencil', icon: 'pencil' },
+        { id: 'eraser', icon: 'eraser' },
+        { id: 'arrow', icon: 'arrow' },
+        { id: 'connector', icon: 'connector' },
+        { id: 'rect', icon: 'rect' },
+        { id: 'text', icon: 'text' },
+        { id: 'sticky', icon: 'sticky' },
+        { id: 'select', icon: 'select' },
+        { id: 'pan', icon: 'pan' },
     ]
 
     const cursorFor = (t) => {
@@ -1140,8 +1481,7 @@ export default function Sketchpad() {
                     {DRAW_TOOLS.map((t, i) => t === null
                         ? <div key={i} style={S.sep} />
                         : (
-                            <button key={t.id} style={S.toolBtn(tool === t.id, t.id)} title={`${t.label}${t.key ? ' (' + t.key + ')' : ''}`}
-                                onClick={() => setTool(t.id)}>
+                            <button key={t.id} style={S.toolBtn(tool === t.id, t.id)} title={`${t.label}${t.key ? ` (${t.key})` : ''}`} onClick={() => setTool(t.id)}>
                                 {t.id === 'vanish'
                                     ? <span style={{ fontSize: 13, color: tool === 'vanish' ? '#ff2d55' : '#999' }}>✦</span>
                                     : icons[t.icon]
@@ -1163,16 +1503,16 @@ export default function Sketchpad() {
                         </>
                     )}
 
-                    {(tool === 'arrow' || tool === 'dashed-arrow') && (
+                    {(tool === 'arrow' || tool === 'dashed-arrow' || tool === 'connector') && (
                         <>
-                            <select value={arrowStyle} onChange={e => setArrowStyle(e.target.value)}
-                                style={{ height: 28, borderRadius: 6, border: '1px solid #e0e0e0', fontSize: 11, padding: '0 6px', color: '#555' }}>
+                            <select value={arrowStyle} onChange={e => setArrowStyle(e.target.value)} style={{ height: 28, borderRadius: 6, border: '1px solid #e0e0e0', fontSize: 11, padding: '0 6px', color: '#555' }}>
                                 {ARROW_STYLES.map(s => <option key={s} value={s}>{s}</option>)}
                             </select>
-                            <select value={arrowEnd} onChange={e => setArrowEnd(e.target.value)}
-                                style={{ height: 28, borderRadius: 6, border: '1px solid #e0e0e0', fontSize: 11, padding: '0 6px', color: '#555' }}>
-                                {ARROW_ENDS.map(s => <option key={s} value={s}>{s}</option>)}
-                            </select>
+                            {tool !== 'connector' && (
+                                <select value={arrowEnd} onChange={e => setArrowEnd(e.target.value)} style={{ height: 28, borderRadius: 6, border: '1px solid #e0e0e0', fontSize: 11, padding: '0 6px', color: '#555' }}>
+                                    {ARROW_ENDS.map(s => <option key={s} value={s}>{s}</option>)}
+                                </select>
+                            )}
                             <div style={S.sep} />
                         </>
                     )}
@@ -1181,15 +1521,13 @@ export default function Sketchpad() {
                         {COLORS.map(c => (
                             <div key={c} style={S.colorDot(c, color === c)} onClick={() => setColor(c)} title={c} />
                         ))}
-                        <input type="color" value={color} onChange={e => setColor(e.target.value)}
-                            style={{ width: 20, height: 20, border: 'none', borderRadius: '50%', cursor: 'pointer', padding: 0 }} />
+                        <input type="color" value={color} onChange={e => setColor(e.target.value)} style={{ width: 20, height: 20, border: 'none', borderRadius: '50%', cursor: 'pointer', padding: 0 }} />
                     </div>
                     <div style={S.sep} />
 
                     <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                         <span style={S.label}>Fill</span>
-                        <div style={{ ...S.colorDot('transparent', fill === 'none'), border: '1.5px dashed #ccc', position: 'relative' }}
-                            onClick={() => setFill('none')}>
+                        <div style={{ ...S.colorDot('transparent', fill === 'none'), border: '1.5px dashed #ccc', position: 'relative' }} onClick={() => setFill('none')}>
                             {fill === 'none' && <span style={{ position: 'absolute', color: '#e55', fontSize: 12, top: -2, left: 2 }}>×</span>}
                         </div>
                         {COLORS.slice(0, 6).map(c => (
@@ -1200,17 +1538,14 @@ export default function Sketchpad() {
 
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                         <span style={S.label}>Size</span>
-                        <input type="range" min="1" max="24" value={strokeSize}
-                            onChange={e => setStrokeSize(Number(e.target.value))}
-                            style={{ width: 64, accentColor: '#6366f1' }} />
+                        <input type="range" min="1" max="24" value={strokeSize} onChange={e => setStrokeSize(Number(e.target.value))} style={{ width: 64, accentColor: '#6366f1' }} />
                         <span style={{ ...S.label, minWidth: 16 }}>{strokeSize}</span>
                     </div>
                     <div style={S.sep} />
 
                     {(tool === 'text' || tool === 'sticky') && (
                         <>
-                            <select value={fontSize} onChange={e => setFontSize(Number(e.target.value))}
-                                style={{ height: 28, borderRadius: 6, border: '1px solid #e0e0e0', fontSize: 11, padding: '0 4px', color: '#555' }}>
+                            <select value={fontSize} onChange={e => setFontSize(Number(e.target.value))} style={{ height: 28, borderRadius: 6, border: '1px solid #e0e0e0', fontSize: 11, padding: '0 4px', color: '#555' }}>
                                 {FONT_SIZES.map(f => <option key={f} value={f}>{f}px</option>)}
                             </select>
                             {FONT_LABELS.map((fl, fi) => (
@@ -1225,8 +1560,7 @@ export default function Sketchpad() {
                     <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                         <span style={S.label}>BG</span>
                         {BG_OPTIONS.map(b => (
-                            <button key={b.id} style={{ ...S.toolBtn(bg === b.id), width: 'auto', padding: '0 6px', fontSize: 10 }}
-                                onClick={() => setBg(b.id)}>{b.label}</button>
+                            <button key={b.id} style={{ ...S.toolBtn(bg === b.id), width: 'auto', padding: '0 6px', fontSize: 10 }} onClick={() => setBg(b.id)}>{b.label}</button>
                         ))}
                     </div>
                     <div style={S.sep} />
@@ -1237,8 +1571,7 @@ export default function Sketchpad() {
                     <button style={S.iconBtn()} onClick={duplicateSelected} title="Duplicate (Ctrl+D)"><Icon d={icons.copy} /></button>
                     <div style={S.sep} />
                     <button style={S.iconBtn()} onClick={zoomOut}><Icon d={icons.zoomOut} /></button>
-                    <button style={{ ...S.iconBtn(), width: 'auto', padding: '0 8px', fontSize: 11, color: '#555', cursor: 'pointer' }}
-                        onClick={resetZoom}>{Math.round(zoom * 100)}%</button>
+                    <button style={{ ...S.iconBtn(), width: 'auto', padding: '0 8px', fontSize: 11, color: '#555', cursor: 'pointer' }} onClick={resetZoom}>{Math.round(zoom * 100)}%</button>
                     <button style={S.iconBtn()} onClick={zoomIn}><Icon d={icons.zoomIn} /></button>
                     <button style={{ ...S.iconBtn(), width: 'auto', padding: '0 6px', fontSize: 10 }} onClick={fitToScreen}>Fit</button>
                     <div style={S.sep} />
@@ -1257,84 +1590,44 @@ export default function Sketchpad() {
                     onDoubleClick={onDblClick}
                 />
 
-                {/* ── Inline selection toolbar — appears above selection ── */}
+                {/* ── Inline selection toolbar ── */}
                 {hasSelection && inlineToolbarPos && (
                     <div style={{
-                        position: 'absolute',
-                        left: inlineToolbarPos.left,
-                        top: inlineToolbarPos.top,
-                        transform: 'translateX(-50%)',
-                        zIndex: 40,
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 2,
-                        background: '#18181b',
-                        borderRadius: 10,
-                        padding: '5px 6px',
-                        boxShadow: '0 4px 20px rgba(0,0,0,0.22)',
-                        pointerEvents: 'auto',
-                        userSelect: 'none',
+                        position: 'absolute', left: inlineToolbarPos.left, top: inlineToolbarPos.top,
+                        transform: 'translateX(-50%)', zIndex: 40,
+                        display: 'flex', alignItems: 'center', gap: 2,
+                        background: '#18181b', borderRadius: 10, padding: '5px 6px',
+                        boxShadow: '0 4px 20px rgba(0,0,0,0.22)', pointerEvents: 'auto', userSelect: 'none',
                     }}>
-                        {/* Selection count badge */}
-                        <span style={{
-                            fontSize: 10, color: '#a1a1aa', fontWeight: 500,
-                            padding: '0 6px', letterSpacing: '.04em',
-                        }}>
+                        <span style={{ fontSize: 10, color: '#a1a1aa', fontWeight: 500, padding: '0 6px', letterSpacing: '.04em' }}>
                             {selectionCount > 1 ? `${selectionCount} selected` : (selectedEl?.tool || 'element')}
                         </span>
-
                         <div style={{ width: 1, height: 16, background: '#3f3f46', margin: '0 2px' }} />
-
-                        {/* Duplicate */}
                         <button className="sel-toolbar-btn" title="Duplicate (Ctrl+D)" onClick={duplicateSelected}
-                            style={{
-                                display: 'flex', alignItems: 'center', gap: 5,
-                                background: 'transparent', border: 'none', cursor: 'pointer',
-                                color: '#d4d4d8', padding: '3px 8px', borderRadius: 6,
-                                fontSize: 12, fontFamily: "'DM Sans', sans-serif",
-                                transition: 'background 0.12s',
-                            }}>
-                            <Icon d={icons.copy} size={13} />
-                            <span>Copy</span>
+                            style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'transparent', border: 'none', cursor: 'pointer', color: '#d4d4d8', padding: '3px 8px', borderRadius: 6, fontSize: 12, fontFamily: "'DM Sans', sans-serif", transition: 'background 0.12s' }}>
+                            <Icon d={icons.copy} size={13} /><span>Copy</span>
                         </button>
-
                         <div style={{ width: 1, height: 16, background: '#3f3f46', margin: '0 2px' }} />
-
-                        {/* Delete */}
                         <button className="sel-toolbar-btn sel-toolbar-btn-del" title="Delete (Del)" onClick={deleteSelected}
-                            style={{
-                                display: 'flex', alignItems: 'center', gap: 5,
-                                background: 'transparent', border: 'none', cursor: 'pointer',
-                                color: '#f87171', padding: '3px 8px', borderRadius: 6,
-                                fontSize: 12, fontFamily: "'DM Sans', sans-serif",
-                                transition: 'background 0.12s',
-                            }}>
-                            <Icon d={icons.trash} size={13} />
-                            <span>Delete{selectionCount > 1 ? ` (${selectionCount})` : ''}</span>
+                            style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'transparent', border: 'none', cursor: 'pointer', color: '#f87171', padding: '3px 8px', borderRadius: 6, fontSize: 12, fontFamily: "'DM Sans', sans-serif", transition: 'background 0.12s' }}>
+                            <Icon d={icons.trash} size={13} /><span>Delete{selectionCount > 1 ? ` (${selectionCount})` : ''}</span>
                         </button>
-
-                        {/* Down caret */}
-                        <div style={{
-                            position: 'absolute', bottom: -5, left: '50%',
-                            transform: 'translateX(-50%)',
-                            width: 0, height: 0,
-                            borderLeft: '5px solid transparent',
-                            borderRight: '5px solid transparent',
-                            borderTop: '5px solid #18181b',
-                        }} />
+                        <div style={{ position: 'absolute', bottom: -5, left: '50%', transform: 'translateX(-50%)', width: 0, height: 0, borderLeft: '5px solid transparent', borderRight: '5px solid transparent', borderTop: '5px solid #18181b' }} />
                     </div>
                 )}
 
-                {/* Floating text input */}
+                {/* ── Floating text / label input ── */}
                 {textInput && (
-                    <textarea ref={textareaRef} defaultValue=""
+                    <textarea ref={textareaRef}
+                        defaultValue={textInput.initVal || ''}
                         style={{
                             position: 'absolute', left: textInput.x, top: textInput.y,
                             border: '1.5px dashed #6366f1', background: 'rgba(255,255,255,0.9)',
                             outline: 'none', padding: '4px 8px', minWidth: 120, minHeight: 36,
                             resize: 'none', borderRadius: 6, zIndex: 50,
                             fontFamily: textInput.font, fontSize: textInput.fontSize,
-                            color: textInput.color, lineHeight: 1.4
+                            color: textInput.color, lineHeight: 1.4,
+                            textAlign: textInput.isLabel ? 'center' : 'left',
                         }}
                         rows={2}
                         onBlur={commitText}
@@ -1346,7 +1639,7 @@ export default function Sketchpad() {
                     />
                 )}
 
-                {/* Floating label input */}
+                {/* ── Floating label input (sticky / legacy) ── */}
                 {labelMode && (
                     <input autoFocus value={labelMode.val}
                         onChange={e => setLabelMode(m => ({ ...m, val: e.target.value }))}
@@ -1355,14 +1648,14 @@ export default function Sketchpad() {
                             width: 120, border: '1.5px solid #6366f1', borderRadius: 6,
                             background: 'rgba(255,255,255,0.95)', outline: 'none',
                             padding: '2px 8px', fontSize: 13, fontFamily: "'DM Sans',sans-serif",
-                            textAlign: 'center', zIndex: 50
+                            textAlign: 'center', zIndex: 50,
                         }}
                         onBlur={commitLabel}
                         onKeyDown={e => { if (e.key === 'Enter' || e.key === 'Escape') commitLabel() }}
                     />
                 )}
 
-                {/* Properties panel */}
+                {/* ── Properties panel ── */}
                 {selectedEl && !mob && selectionCount === 1 && (
                     <div style={S.propPanel} className="sketchpad-scroll">
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -1404,8 +1697,7 @@ export default function Sketchpad() {
                         )}
                         <div style={S.sidebarSection}>
                             <span style={S.sidebarLabel}>Stroke size</span>
-                            <input type="range" min="1" max="20" value={selectedEl.size || 2}
-                                style={{ accentColor: '#6366f1' }}
+                            <input type="range" min="1" max="20" value={selectedEl.size || 2} style={{ accentColor: '#6366f1' }}
                                 onChange={e => {
                                     const s = stateRef.current
                                     const el = s.elements.find(x => s.selectedIds.has(x.id))
@@ -1413,10 +1705,16 @@ export default function Sketchpad() {
                                     redraw()
                                 }} />
                         </div>
+                        {/* Hint for double-click edit */}
+                        {CONNECTABLE_TOOLS.includes(selectedEl.tool) && (
+                            <div style={{ fontSize: 10, color: '#9ca3af', marginTop: 2 }}>
+                                Double-click to edit label
+                            </div>
+                        )}
                     </div>
                 )}
 
-                {/* Zoom controls */}
+                {/* ── Zoom controls ── */}
                 <div style={{ position: 'absolute', bottom: mob ? 72 : 12, right: 12, display: 'flex', gap: 4, alignItems: 'center', zIndex: 15 }}>
                     <button style={S.iconBtn()} onClick={zoomOut}><Icon d={icons.zoomOut} /></button>
                     <button style={{ ...S.iconBtn(), width: 52, fontSize: 11, color: '#555' }} onClick={resetZoom}>{Math.round(zoom * 100)}%</button>
@@ -1427,7 +1725,9 @@ export default function Sketchpad() {
                 {!mob && (
                     <div style={{ position: 'absolute', bottom: 12, left: 12, fontSize: 10, color: '#bbb', pointerEvents: 'none' }}>
                         <span style={S.kbd}>V</span> Select &nbsp;
-                        <span style={S.kbd}>drag</span> Marquee select &nbsp;
+                        <span style={S.kbd}>C</span> Connector &nbsp;
+                        <span style={S.kbd}>Hover shape</span> Smart connect &nbsp;
+                        <span style={S.kbd}>Dbl-click</span> Edit label &nbsp;
                         <span style={S.kbd}>Del</span> Delete &nbsp;
                         <span style={S.kbd}>Ctrl+D</span> Duplicate &nbsp;
                         <span style={S.kbd}>Scroll</span> Zoom
@@ -1439,12 +1739,7 @@ export default function Sketchpad() {
                 <div style={{ ...S.mobileBottom, display: 'flex', flexDirection: 'column', gap: 6 }}>
                     <div style={{ display: 'flex', gap: 4, justifyContent: 'space-around' }}>
                         {['draw', 'color', 'bg', 'actions'].map(tab => (
-                            <button key={tab} style={{
-                                flex: 1, height: 30, border: 'none', borderRadius: 6,
-                                background: mobileTab === tab ? '#eef2ff' : 'transparent',
-                                color: mobileTab === tab ? '#4f46e5' : '#71717a',
-                                fontSize: 10, fontWeight: 600, cursor: 'pointer', textTransform: 'uppercase'
-                            }} onClick={() => setMobileTab(tab)}>{tab}</button>
+                            <button key={tab} style={{ flex: 1, height: 30, border: 'none', borderRadius: 6, background: mobileTab === tab ? '#eef2ff' : 'transparent', color: mobileTab === tab ? '#4f46e5' : '#71717a', fontSize: 10, fontWeight: 600, cursor: 'pointer', textTransform: 'uppercase' }} onClick={() => setMobileTab(tab)}>{tab}</button>
                         ))}
                     </div>
                     {mobileTab === 'draw' && (
