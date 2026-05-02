@@ -140,7 +140,7 @@ function getConnectorCurve(el, elements) {
     return { x1, y1, x2, y2, c1x, c1y, c2x, c2y }
 }
 
-function drawElement(ctx, el, selected, panX, panY, zoom, allElements) {
+function drawElement(ctx, el, selected, panX, panY, zoom, allElements, editingLabelId) {
     ctx.save()
     ctx.translate(panX, panY)
     ctx.scale(zoom, zoom)
@@ -217,13 +217,13 @@ function drawElement(ctx, el, selected, panX, panY, zoom, allElements) {
         const r = el.radius || 0, x = Math.min(el.x1, el.x2), y = Math.min(el.y1, el.y2), w = Math.abs(el.x2 - el.x1), h = Math.abs(el.y2 - el.y1)
         if (r > 0 && ctx.roundRect) ctx.roundRect(x, y, w, h, r); else ctx.rect(x, y, w, h)
         if (el.fill) { ctx.fillStyle = el.fill; ctx.fill() }; ctx.stroke()
-        drawShapeLabel(ctx, el, x, y, w, h)
+        if (el.id !== editingLabelId) drawShapeLabel(ctx, el, x, y, w, h)
     } else if (tool === 'circle') {
         const cx = (el.x1 + el.x2) / 2, cy = (el.y1 + el.y2) / 2, rx = Math.abs(el.x2 - el.x1) / 2, ry = Math.abs(el.y2 - el.y1) / 2
         ctx.beginPath(); ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2)
         if (el.fill) { ctx.fillStyle = el.fill; ctx.fill() }; ctx.stroke()
         const x = Math.min(el.x1, el.x2), y = Math.min(el.y1, el.y2), w = Math.abs(el.x2 - el.x1), h = Math.abs(el.y2 - el.y1)
-        drawShapeLabel(ctx, el, x, y, w, h)
+        if (el.id !== editingLabelId) drawShapeLabel(ctx, el, x, y, w, h)
     } else if (tool === 'shape') {
         const x = Math.min(el.x1, el.x2), y = Math.min(el.y1, el.y2), w = Math.abs(el.x2 - el.x1) || 80, h = Math.abs(el.y2 - el.y1) || 60
 
@@ -231,7 +231,7 @@ function drawElement(ctx, el, selected, panX, panY, zoom, allElements) {
             const path2d = new Path2D(el._customPath)
             if (el.fill) { ctx.fillStyle = el.fill; ctx.fill(path2d) }
             ctx.stroke(path2d)
-            drawShapeLabel(ctx, el, x, y, w, h)
+            if (el.id !== editingLabelId) drawShapeLabel(ctx, el, x, y, w, h)
         } else {
             const p = shapePath(el.shapeType, x, y, w, h)
             if (p) {
@@ -243,7 +243,7 @@ function drawElement(ctx, el, selected, panX, panY, zoom, allElements) {
                 ctx.beginPath(); ctx.ellipse(x + w / 2, y + h / 2, w / 2, h / 2, 0, 0, Math.PI * 2)
                 if (el.fill) { ctx.fillStyle = el.fill; ctx.fill() }; ctx.stroke()
             }
-            drawShapeLabel(ctx, el, x, y, w, h)
+            if (el.id !== editingLabelId) drawShapeLabel(ctx, el, x, y, w, h)
         }
     } else if (tool === 'text' || tool === 'sticky') {
         const fs = el.fontSize || 18, font = el.font || "'Kalam', cursive"
@@ -635,6 +635,8 @@ export default function Sketchpad() {
     const animFrameRef = useRef(null)
     const textInputRef = useRef(null)
     const smartDrawRef = useRef(true)
+    const editingIdRef = useRef(null)
+    const editingIsLabelRef = useRef(false)
 
 
     useEffect(() => { toolRef.current = tool }, [tool])
@@ -706,10 +708,13 @@ export default function Sketchpad() {
         drawBackground(ctx, canvas.width, canvas.height, bgOpt.style, s.panOffset.x, s.panOffset.y, s.zoom)
 
         s.elements.forEach(el => {
+            const isEditingLabel = editingIdRef.current === el.id && editingIsLabelRef.current
+            const isEditingText = editingIdRef.current === el.id && !editingIsLabelRef.current
+            if (isEditingText) return
             if (WC_TOOLS.includes(el.tool)) {
                 renderWhimsicalElement(ctx, el, s.selectedIds.has(el.id), s.panOffset.x, s.panOffset.y, s.zoom)
             } else {
-                drawElement(ctx, el, s.selectedIds.has(el.id), s.panOffset.x, s.panOffset.y, s.zoom, s.elements)
+                drawElement(ctx, el, s.selectedIds.has(el.id), s.panOffset.x, s.panOffset.y, s.zoom, s.elements, isEditingLabel ? el.id : null)
             }
         })
 
@@ -727,12 +732,10 @@ export default function Sketchpad() {
             if (s.hoverShapeId) {
                 const hEl = s.elements.find(e => e.id === s.hoverShapeId)
                 if (hEl) {
-                    // Only show connector anchors for connectable shapes
                     if (toolRef.current === 'select' && CONNECTABLE_TOOLS.includes(hEl.tool)) {
                         drawHoverConnectors(ctx, hEl, s.panOffset.x, s.panOffset.y, s.zoom)
                         if (s.hoverAnchorSide) drawClonePreview(ctx, hEl, s.hoverAnchorSide, s.panOffset.x, s.panOffset.y, s.zoom)
                     }
-                    // For text elements, show a subtle hover outline
                     if (hEl.tool === 'text') {
                         const b = getElementBounds(hEl)
                         ctx.save(); ctx.translate(s.panOffset.x, s.panOffset.y); ctx.scale(s.zoom, s.zoom)
@@ -842,6 +845,8 @@ export default function Sketchpad() {
     }, [redraw])
 
     const commitText = useCallback(() => {
+        editingIdRef.current = null;
+        editingIsLabelRef.current = false
         const ti = textInputRef.current
         const txt = textareaRef.current?.value ?? ''
         const s = stateRef.current
@@ -861,7 +866,7 @@ export default function Sketchpad() {
                     id: newId(), tool: 'text',
                     x1: ti.sx, y1: ti.sy,
                     text: txt, color: ti.color,
-                    fontSize: ti.fontSize / s.zoom,  // ← divide by zoom to get world size
+                    fontSize: ti.fontSize / s.zoom,
                     font: ti.font
                 })
             }
@@ -1064,7 +1069,6 @@ export default function Sketchpad() {
         e.preventDefault()
 
         if (t === 'pan' && s.panStart) { const ce = e.touches ? e.touches[0] : e; s.panOffset = { x: ce.clientX - s.panStart.x, y: ce.clientY - s.panStart.y }; redraw(); return }
-
         if (t === 'select' || t === '__drag__') {
             if (s.isMarquee && s.marquee) {
                 s.marquee.w = pos.x - s.marquee.x; s.marquee.h = pos.y - s.marquee.y
@@ -1076,7 +1080,6 @@ export default function Sketchpad() {
                 if (!el) return
                 const { idx: hi, origBounds: ob, origEl } = s.resizeHandle
 
-                // Compute new bounding box from handle drag
                 let nx1 = ob.x, ny1 = ob.y, nx2 = ob.x + ob.w, ny2 = ob.y + ob.h
                 if (hi === 0 || hi === 6 || hi === 7) nx1 = pos.x
                 if (hi === 0 || hi === 1 || hi === 2) ny1 = pos.y
@@ -1091,13 +1094,11 @@ export default function Sketchpad() {
                 const scaleY = nh / (ob.h || 1)
 
                 if (origEl?.points) {
-                    // Scale all points proportionally from original bounds
                     el.points = origEl.points.map(([px, py]) => [
                         minNx + (px - ob.x) * scaleX,
                         minNy + (py - ob.y) * scaleY
                     ])
                 } else if (el.shapeType === '__custom__' && origEl?._verts) {
-                    // Recompute SVG path from original vertices scaled to new bounds
                     const scaledVerts = origEl._verts.map(([vx, vy]) => [
                         minNx + (vx - ob.x) * scaleX,
                         minNy + (vy - ob.y) * scaleY
@@ -1174,7 +1175,6 @@ export default function Sketchpad() {
                         const { type, verts, x1, y1, x2, y2 } = recognized
 
                         if (type === '__polygon__' || type === '__star__') {
-                            // Build SVG path from computed vertices
                             const d = verts.map((v, i) => `${i === 0 ? 'M' : 'L'}${v[0]},${v[1]}`).join(' ') + 'Z'
                             s.elements.push({
                                 id: p.id, tool: 'shape', shapeType: '__custom__',
@@ -1222,6 +1222,9 @@ export default function Sketchpad() {
                 const sy = b.y * s.zoom + s.panOffset.y
                 const sw = b.w * s.zoom
                 const sh = b.h * s.zoom
+                editingIdRef.current = el.id
+                editingIsLabelRef.current = true
+                redraw()
                 setTextInput({
                     x: sx,
                     y: sy,
@@ -1248,17 +1251,58 @@ export default function Sketchpad() {
             }
 
             if (el.tool === 'text') {
+                editingIdRef.current = el.id
+                editingIsLabelRef.current = false
+                redraw()
+                const fs = el.fontSize || 18
+                const screenX = el.x1 * s.zoom + s.panOffset.x
+                const screenY = (el.y1 - fs) * s.zoom + s.panOffset.y
                 setTextInput({
-                    x: e.clientX - r.left - 4,
-                    y: e.clientY - r.top - 4,
+                    x: screenX,
+                    y: screenY,
                     sx: el.x1, sy: el.y1,
                     color: el.color || colorRef.current,
                     font: el.font || FONTS[fontRef.current],
-                    fontSize: (el.fontSize || 18) * s.zoom,
+                    fontSize: fs * s.zoom,
                     editId: el.id, isLabel: false,
                     initVal: el.text || ''
                 })
-                setTimeout(() => textareaRef.current?.focus(), 30); return
+                setTimeout(() => {
+                    const ta = textareaRef.current
+                    if (!ta) return
+                    ta.focus()
+
+                    // Calculate which character position the click corresponds to
+                    const clickX = e.clientX - r.left - screenX
+                    const clickY = e.clientY - r.top - screenY
+                    const lineHeight = fs * s.zoom * 1.35
+                    const lines = (el.text || '').split('\n')
+                    const lineIndex = Math.min(Math.floor(clickY / lineHeight), lines.length - 1)
+
+                    // Build a temporary canvas to measure character positions
+                    const tempCanvas = document.createElement('canvas')
+                    const tempCtx = tempCanvas.getContext('2d')
+                    tempCtx.font = `${fs * s.zoom}px ${el.font || FONTS[fontRef.current]}`
+
+                    let charPos = 0
+                    for (let l = 0; l < lineIndex; l++) {
+                        charPos += lines[l].length + 1 // +1 for \n
+                    }
+
+                    const line = lines[Math.max(0, lineIndex)] || ''
+                    let bestPos = line.length
+                    for (let c = 0; c <= line.length; c++) {
+                        const w = tempCtx.measureText(line.substring(0, c)).width
+                        if (w >= clickX) {
+                            const wPrev = c > 0 ? tempCtx.measureText(line.substring(0, c - 1)).width : 0
+                            bestPos = (clickX - wPrev < w - clickX) ? c - 1 : c
+                            break
+                        }
+                    }
+
+                    ta.setSelectionRange(charPos + bestPos, charPos + bestPos)
+                }, 30)
+                return
             }
 
             if (el.tool === 'sticky') {
@@ -1304,7 +1348,6 @@ export default function Sketchpad() {
             redraw()
         }
 
-        // ── Touch state ──
         let lastTouchDist = null
         let lastTouchMid = null
         let touchPanActive = false
@@ -1324,7 +1367,6 @@ export default function Sketchpad() {
                 touchPanActive = true
                 lastTouchDist = getTouchDist(e.touches[0], e.touches[1])
                 lastTouchMid = getTouchMid(e.touches[0], e.touches[1])
-                // Cancel any single-finger drawing
                 const s = stateRef.current
                 s.drawing = false; s.current = null
             } else {
@@ -1745,42 +1787,65 @@ export default function Sketchpad() {
                             position: 'absolute',
                             left: textInput.x,
                             top: textInput.y,
-                            width: textInput.boxW ? Math.max(60, textInput.boxW) : 160,
-                            height: textInput.boxH ? Math.max(30, textInput.boxH) : 'auto',
+                            width: textInput.boxW ? Math.max(60, textInput.boxW) : 'auto',
                             minWidth: textInput.boxW ? undefined : 120,
-                            maxWidth: textInput.boxW ? Math.max(60, textInput.boxW) : 320,
+                            maxWidth: textInput.boxW ? Math.max(60, textInput.boxW) : 600,
+                            height: textInput.boxH ? Math.max(30, textInput.boxH) : 'auto',
+                            minHeight: textInput.boxH ? undefined : 'auto',
                             border: 'none',
                             outline: 'none',
                             background: 'transparent',
-                            padding: '4px 8px',
-                            minHeight: textInput.boxH ? undefined : 36,
+                            padding: 0,
+                            margin: 0,
                             resize: 'none',
-                            borderRadius: 6,
+                            borderRadius: 0,
                             zIndex: 50,
                             fontFamily: textInput.font,
                             fontSize: textInput.fontSize,
                             color: textInput.color || '#1a1a2e',
-                            lineHeight: 1.4,
+                            lineHeight: 1.35,
                             textAlign: textInput.isLabel ? 'center' : 'left',
                             boxSizing: 'border-box',
                             overflow: 'hidden',
                             wordBreak: 'break-word',
                             whiteSpace: 'pre-wrap',
                             caretColor: '#6366f1',
-                            // Only show cursor ring when it's a free-floating text (no shape behind it)
-                            boxShadow: (!textInput.boxH && !textInput.isLabel && !textInput.stickyId)
-                                ? '0 0 0 1.5px #6366f1' : 'none',
+                            boxShadow: 'none',
                         }}
-                        rows={2}
-                        onBlur={() => setTimeout(commitText, 60)}
+                        rows={1}
+                        onBlur={commitText}
+                        onFocus={e => {
+                            if (!textInput.boxH) {
+                                e.target.style.height = 'auto'
+                                e.target.style.height = e.target.scrollHeight + 'px'
+                                const lines = e.target.value.split('\n')
+                                const longestLine = lines.reduce((a, b) => a.length > b.length ? a : b, '')
+                                const approxW = Math.max(120, longestLine.length * (textInput.fontSize * 0.6) + 20)
+                                e.target.style.width = approxW + 'px'
+                            }
+                        }}
                         onKeyDown={e => {
-                            if (e.key === 'Escape') { setTextInput(null); if (textareaRef.current) textareaRef.current.value = '' }
-                            if (e.key === 'Enter' && !e.shiftKey && !textInput.stickyId && !textInput.isLabel) { e.preventDefault(); commitText() }
+                            if (e.key === 'Escape') {
+                                editingIdRef.current = null
+                                editingIsLabelRef.current = false
+                                setTextInput(null)
+                                textInputRef.current = null
+                                if (textareaRef.current) textareaRef.current.value = ''
+                                redraw()
+                            }
+                            if (e.key === 'Enter' && !e.shiftKey && textInput.isLabel) {
+                                e.preventDefault(); commitText()
+                            }
                         }}
                         onInput={e => {
                             if (!textInput.boxH) {
                                 e.target.style.height = 'auto'
-                                e.target.style.height = e.target.scrollHeight + 'px'
+                                e.target.style.height = (e.target.scrollHeight) + 'px'
+                                e.target.style.width = 'auto'
+                                const lines = e.target.value.split('\n')
+                                const longestLine = lines.reduce((a, b) => a.length > b.length ? a : b, '')
+                                const approxW = Math.max(120, longestLine.length * (textInput.fontSize * 0.6) + 20)
+                                e.target.style.width = approxW + 'px'
                             }
                         }}
                     />
