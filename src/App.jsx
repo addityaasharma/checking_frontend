@@ -41,21 +41,6 @@ const AppRoutes = () => {
       </Route>
 
       <Route element={<PrivateRoute />}>
-        <Route path="/subjects" element={<DashboardLayout />}>
-          <Route index element={<Subjects />} />
-        </Route>
-        <Route path="/timetable" element={<DashboardLayout />}>
-          <Route index element={<Timetable />} />
-        </Route>
-        <Route path="/saved" element={<DashboardLayout />}>
-          <Route index element={<SavedAnswers />} />
-        </Route>
-        <Route path="/saved/:id" element={<DashboardLayout />}>
-          <Route index element={<SavedAnswers />} />
-        </Route>
-        <Route path="/streak" element={<DashboardLayout />}>
-          <Route index element={<UserStreak />} />
-        </Route>
         <Route path="/profile" element={<DashboardLayout />}>
           <Route index element={<Profile />} />
         </Route>
